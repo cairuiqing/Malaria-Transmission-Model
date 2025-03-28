@@ -7,12 +7,10 @@ sourceCpp("get_biting_status.cpp")
 ######################################################
 ########Fixed Parameters and re-used functions#######
 #####################################################
-n_p<- c(20, 20, 40)#20, 20, 20, 20, 40, 40, 40)
-n_m<- c(3000, 3000, 6000)#3000, 3000, 3000, 3000, 6000, 6000, 6000)
+n_p<- c(20, 20, 20, 40, 40)
+n_m<- c(3000, 3000, 3000, 6000, 6000)
 
 num_loc <- length(n_p)
-prob_matrix <- matrix(0.45, nrow = num_loc, ncol = num_loc)
-diag(prob_matrix) <- NA
 
 #day numbering, could feed every 3 days sample mosquitoes every 7 days, sample humans every month (except sick visits)
 mos_sample_days<- seq(from=365,to=730,by=7)
@@ -76,6 +74,11 @@ get_pers_infec<- function(x,haps,freq){
   return(haps_index)
 }
 
+#get_mos_infec<- function(x,haps,freq){
+#haps_index<-sample(haps, size=x, prob=freq)
+#return(haps_index)
+#}
+
 #haplotype exchange between human and mosquitoes if biting is happening
 
 get_old_p_haps<- function(x){
@@ -97,6 +100,8 @@ get_old_p_infec<- function(x){
 get_old_p_infec2 <- function(x){
   return((rowSums(x >= 7) > 0) * 1)
 }
+
+#old_haps_p<-apply(age_haps_p,1,get_old_p_haps)
 
 get_old_m_haps<- function(x){
   old_index<- which(x>=9)
@@ -145,13 +150,15 @@ remove_0_values_take_min<- function(x){
 ####Simulation function#####
 ############################
 
-# run_biting_sim<- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_feed, pr_on_feed_rainy, pr_on_feed_dry,
-#                           pr_on_feed_moderate, pr_hum_to_mos, pr_mos_to_hum, num_loc,
-#                           pr_num_biting, n_m,n_p, scenario_name, n_sim,
-#                           proportion_suceptible, pr_suceptibility, pr_nonSuceptibility, n_days,
-#                           proportion_mobile, pr_move, prob_matrix){
+run_biting_sim<- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_feed, pr_on_feed_rainy, pr_on_feed_dry, 
+                          pr_on_feed_moderate, pr_hum_to_mos, pr_mos_to_hum, num_loc, 
+                          pr_num_biting, n_m,n_p, scenario_name, n_sim, 
+                          proportion_suceptible, pr_suceptibility, pr_nonSuceptibility, n_days, 
+                          proportion_mobile, pr_move, prob_matrix){
   
-  
+  # Setting timer for the simulation
+  total_start_time <- Sys.time()
+  time_per_sim <- numeric(n_sim)
   
   mosquito_MOI_df<- matrix(NA, nrow=n_sim, ncol=30*n_days)
   eir_df<- matrix(NA, nrow=n_sim,ncol=sum(n_p))
@@ -160,11 +167,10 @@ remove_0_values_take_min<- function(x){
   symptoms<-array(NA, c(sum(n_p), n_days,n_sim) )
   location<- array(NA, c(sum(n_p),n_days,n_sim))
   initial_locs_matrix<- matrix(NA, nrow=sum(n_p), n_sim)
-  haplotype_export <- vector(mode = 'list', length = n_sim)
-  haplotype_import <- vector(mode = 'list', length = n_sim)
   od_matrix <- array(0, c(num_loc, num_loc, n_sim))
   
   for(q in 1:n_sim){
+    sim_start_time <- Sys.time() # Starting time for current simulation
     mosquito_trans_chain <- vector("list", sum(n_m))
     
     #initial location:
@@ -181,7 +187,7 @@ remove_0_values_take_min<- function(x){
     # for(i in 1:length(n_m)){
     #   locs<-rep(i, n_m[i])
     #   init_locs_m<- c(init_locs_m, locs)
-    # } 
+    # }
     # modification: =============
     init_locs_m <- rep(1:num_loc, n_m)
     
@@ -349,9 +355,10 @@ remove_0_values_take_min<- function(x){
     # mobile_humans<- rep(0,sum(n_p))
     # mobile_humans[sample(1:sum(n_p), size=proportion_mobile*sum(n_p), replace=F)]<-1
     # Modification: ========
-    mobile_humans <- ifelse(1:sum(n_p) %in% sample(1:sum(n_p), 
-                                                   size = proportion_mobile * sum(n_p), 
-                                                   replace = FALSE), 1, 0)
+    # mobile_humans <- ifelse(1:sum(n_p) %in% sample(1:sum(n_p), 
+    #                                                size = proportion_mobile * sum(n_p), 
+    #                                                replace = FALSE), 1, 0)
+    mobile_humans <- ifelse(1:sum(n_p) %in% sample(n_p), 1, 0)
     
     days_away<- rep(0,sum(n_p))
     last_day<- rep(0,sum(n_p))
@@ -394,8 +401,6 @@ remove_0_values_take_min<- function(x){
       age_haps_m[death_m == 1, ] <- 0
       
       bit_last_3_days[death_m==1]<-0
-      
-      mosquito_trans_chain[which(death_m == 1)] <- vector("list", length = 1)
       
       # for(i in 1:n_m){
       #   if(death_m[i]==1 ){
@@ -594,123 +599,171 @@ remove_0_values_take_min<- function(x){
       
       bit_last_3_days[which_mos_bite==1]<-1
       
-      # --- Optimized transmission tracking code ---
-      # Create a temporary list to store new haplotype transmission events (to be combined later)
-      temp_hap_import <- list()
-      if (r == 1) {
-        human_origin_loc <- init_locs_p
-      }
+      # for(i in 1:n_m){
+      #   if(age_m[i]>=2){
+      #     if(min(age_haps_m[i,])<=(age_m[i]-3)){
+      #       bite <- rbinom(1,1,pr_off_feed)
+      #     }else{
+      #       bite <- rbinom(1,1,pr_on_feed)
+      #     }
+      # 
+      #     # bite<- ifelse(min(age_haps_m[i,])<=(age_m[i]-3),rbinom(1,1,pr_off_feed),rbinom(1,1,pr_on_feed))
+      # 
+      #     if(bite==1){
+      #       num_biting<- sample(c(1,2,3,4,5,6,7),size=1,prob=pr_num_biting)
+      # 
+      #       ###CHANGED
+      #       which_people_bite <- sample(which(humans_loc==mos_loc[i]),size=num_biting,replace=F)
+      #       person_bitten[which_people_bite] <- 1
+      #       mos_bite[i,which_people_bite]<-1
+      #       which_hum_bite[which_people_bite] <- 1
+      #       # mos_bite[i,sample(1:200,size=num_biting,replace=F)]<-1
+      #       which_mos_bite[i] <- 1
+      #     }
+      #   }
+      # 
+      # }
       
-      for (person in which(person_bitten == 1)) {
-        # Find all mosquitoes that bit this person
-        mos_indices <- which(mos_bite[, person] == 1)
-        
-        for (mos in mos_indices) {
-          ## Human-to-Mosquito Transmission ##
-          old_haps_p_i <- which(age_haps_p[person, ] >= 14)
-          if (length(old_haps_p_i) > 0 && symp_age[person] < 1) {
-            # Vectorize the transmission decision over eligible haplotypes
-            decisions <- rbinom(length(old_haps_p_i), 1, pr_hum_to_mos) == 1
-            selected_haps <- old_haps_p_i[decisions]
-            # Only keep haplotypes not already in the mosquito's record
-            transfer_haps <- setdiff(selected_haps, infec_m[[mos]])
-            
-            if (length(transfer_haps) > 0) {
-              # Update the mosquito's infection record and haplotype ages
-              infec_m[[mos]] <- c(infec_m[[mos]], transfer_haps)
-              age_haps_m[mos, transfer_haps] <- 1
-              
-              current_loc <- human_locs[person]          # Human's current location
-              
-              
-              # For each transmitted haplotype, record the event
-              for (h in transfer_haps) {
-                temp_hap_import[[length(temp_hap_import) + 1]] <- data.frame(
-                  day = r,
-                  haplotype = h,
-                  new_loc = current_loc,
-                  mosquito_id = mos,
-                  infected_humans = NA,
-                  stringsAsFactors = FALSE
-                )
+      #haplotype exchange if biting is happening
+      
+      # old_haps_p<-apply(age_haps_p,1,get_old_p_haps)
+      # 
+      # 
+      # old_haps_m<-apply(age_haps_m,1,get_old_m_haps)
+      # 
+      # ##########################
+      # # which_mos_bite<- ifelse(apply(mos_bite,1,sum)>0,1,0)
+      # 
+      # 
+      # ##CHANGED
+      # # which_mos_bite<- (rowSums(mos_bite)>0) * 1
+      # 
+      # old_hap_mosquitoes<- rep(0,n_m)
+      # 
+      # for(i in 1:n_m){
+      #   if(length(old_haps_m)>0){
+      #     if(length(old_haps_m[[i]])>0){
+      #       old_hap_mosquitoes[i]<-1
+      #     }
+      #   }
+      # }
+      # 
+      # hap_transfer_mos<- rep(0,n_m)
+      # 
+      # for(i in 1:n_m){
+      #   if(old_hap_mosquitoes[i]==1&which_mos_bite[i]==1){
+      #     hap_transfer_mos[i]<-1
+      #   }
+      # }
+      
+      
+      ####################
+      
+      # # which_hum_bite<- ifelse(apply(mos_bite,2,sum)>0,1,0)
+      # # which_hum_bite<- (colSums(mos_bite)>0)*1
+      # 
+      # old_hap_hum<- rep(0,n_p)
+      # 
+      # 
+      # for(i in 1:n_p){
+      #   if(length(old_haps_p)>0){
+      #     if(length(old_haps_p[[i]])>0){
+      #       old_hap_hum[i]<-1
+      #     }
+      #   }
+      # }
+      # 
+      # hap_transfer_hum<- rep(0,n_p)
+      # 
+      # for(i in 1:n_p){
+      #   if(old_hap_hum[i]==1&which_hum_bite[i]==1){
+      #     hap_transfer_hum[i]<-1
+      #   }
+      # }
+      # 
+      ##########################
+      if (r == 1) {
+        prev_human_locs <- human_locs
+      }
+      for(i in which(person_bitten == 1)){
+        mos_index1<- mos_bite[,i]==1
+        mos_index<- which(mos_index1)
+        inf_bites<- rep(0,length(mos_index))
+        for(j in 1:length(mos_index)){
+          
+          
+          old_haps_p_i <- which(age_haps_p[i, ] >= 14)
+          if(length(old_haps_p_i)>0&symp_age[i]<1){
+            transfer_haps<- rep(NA,length(old_haps_p_i))
+            for(k in 1:length(old_haps_p_i)){
+              prob<- pr_hum_to_mos
+              transfer<- rbinom(1,1,prob)
+              if(transfer==1){
+                transfer_haps[k]<- old_haps_p_i[k]
               }
-              
-              # Save the mosquito’s transmission chain info
-              mosquito_trans_chain[[mos]] <- list(
-                origin_loc = human_origin_loc[person],
-                haplotype = transfer_haps,
-                acquired_day = r
+            }
+            new_haps<- setdiff(na.omit(transfer_haps),infec_m[[mos_index[j]]])
+            infec_m[[mos_index[j]]]<-c(infec_m[[mos_index[j]]],new_haps)
+            age_haps_m[mos_index[j],new_haps]<-1
+            
+            # Check if this person has moved from the previous day
+            if (human_locs[i] != prev_human_locs[i]) {
+              # Save the origin of infection in the mosquito object
+              mosquito_trans_chain[[j]] <- list(
+                origin_loc = prev_human_locs[i],
+                dest_loc = human_locs[i],
+                flag = TRUE  # mark this mosquito as cross-location infected
+              )
+            } else {
+              mosquito_trans_chain[[j]] <- list(
+                flag = FALSE  # local infection; no tracking
               )
             }
+            
           }
           
-          ## Mosquito-to-Human Transmission ##
-          old_haps_m_j <- which(age_haps_m[mos, ] >= 9)
-          if (length(old_haps_m_j) > 0 && symp_age[person] == 0) {
-            decisions_m <- rbinom(length(old_haps_m_j), 1, pr_mos_to_hum) == 1
-            transfer_haps_m <- setdiff(old_haps_m_j[decisions_m], infec_p[[person]])
-            
-            if (length(transfer_haps_m) > 0) {
-              # Update the human's infection record and haplotype ages
-              infec_p[[person]] <- c(infec_p[[person]], transfer_haps_m)
-              age_haps_p[person, transfer_haps_m] <- 1
-              
-              # For each transmitted haplotype from mosquito to human, update the infected_humans field
-              for (h in transfer_haps_m) {
-                # Try to locate an existing record for this haplotype from the same mosquito
-                rec_index <- which(vapply(temp_hap_import, function(x) {
-                  (x$haplotype == h) & (x$mosquito_id == mos)
-                }, FUN.VALUE = logical(1)))
-                if (length(rec_index) > 0) {
-                  for (idx in rec_index) {
-                    current_record <- temp_hap_import[[idx]]$infected_humans
-                    current_ids <- if (is.na(current_record) || current_record == "") character(0) else unlist(strsplit(current_record, ","))
-                    updated_ids <- unique(c(current_ids, as.character(person)))
-                    temp_hap_import[[idx]]$infected_humans <- paste(updated_ids, collapse = ",")
-                  }
-                } else {
-                  # If no record exists, create one with this human as the first infected
-                  temp_hap_import[[length(temp_hap_import) + 1]] <- data.frame(
-                    day = r,
-                    haplotype = h,
-                    new_loc = current_loc,
-                    mosquito_id = mos,
-                    infected_humans = as.character(person),
-                    stringsAsFactors = FALSE
-                  )
-                }
+          
+          old_haps_m_j <- which(age_haps_m[mos_index[j], ] >= 9)
+          if(length(old_haps_m_j)>0&symp_age[i]==0){
+            transfer_haps_m<- rep(NA,length(old_haps_m_j))
+            for(l in 1:length(old_haps_m_j)){
+              prob_m<- pr_mos_to_hum
+              transfer_m<- rbinom(1,1,prob_m)
+              if(transfer_m==1){
+                transfer_haps_m[l]<- old_haps_m_j[l]
               }
+            }
+            new_haps_m<- setdiff(na.omit(transfer_haps_m), infec_p[[i]])
+            infec_p[[i]]<- c(infec_p[[i]],new_haps_m)
+            age_haps_p[i,new_haps_m]<- 1
+            if(length(new_haps_m)>0){
+              inf_bites[j]<-1
+            }
+            
+            if (!is.null(mosquito_trans_chain[[j]]) && isTRUE(mosquito_trans_chain[[j]]$flag)) {
+              origin <- mosquito_trans_chain[[j]]$origin_loc
+              dest <- human_locs[i]
               
-              # Update the OD matrix if the mosquito's transmission chain is available
-              if (!is.null(mosquito_trans_chain[[mos]]) && !is.null(mosquito_trans_chain[[mos]]$origin_loc)) {
-                origin_loc <- as.numeric(as.character(mosquito_trans_chain[[mos]]$origin_loc))
-                dest_loc <- as.numeric(as.character(human_locs[person]))
-                cat("Transmission from", origin_loc, "to", dest_loc, "\n")
-                if (origin_loc != dest_loc) {
-                  od_matrix[origin_loc, dest_loc, q] <- od_matrix[origin_loc, dest_loc, q] + 1
-                }
+              # Record cross-location infection only if origin != dest
+              if (!is.null(origin) && origin != dest) {
+                od_matrix[origin, dest, q] <- od_matrix[origin, dest, q] + 1
+                cat("Tracked infection: ", origin, "->", dest, " at day ", r, "\n")
               }
             }
           }
-        }  # End loop over mosquitoes biting 'person'
+          # }
+          
+          
+          
+          
+        }
+        if(r>=365){
+          num_infec_bites[i]<- num_infec_bites[i]+sum(inf_bites)
+        }
+        # }
         
-        # Increment infectious bite count (starting from day 365)
-        if (r >= 365) {
-          num_infec_bites[person] <- num_infec_bites[person] + length(mos_indices)
-        }
-        human_origin_loc[person] <- human_locs[person]
-      }  # End loop over bitten humans
-      
-      # At the end of this day's transmission, merge the temporary records
-      if (length(temp_hap_import) > 0) {
-        new_records <- do.call(rbind, temp_hap_import)
-        if (is.null(haplotype_import[[q]])) {
-          haplotype_import[[q]] <- new_records
-        } else {
-          haplotype_import[[q]] <- rbind(haplotype_import[[q]], new_records)
-        }
       }
-      
+
       
       
       #if its only a mosquito sample day
@@ -756,11 +809,22 @@ remove_0_values_take_min<- function(x){
       
       
     }
+    # Update prev_human_locs at the end of the day
+    prev_human_locs <- human_locs
     
     eir_df[q,]<- num_infec_bites
     age_mos_df[q,]<- age_m
     
+    
+    sim_end_time <- Sys.time() # Ending time for current simulation
+    time_per_sim[q] <- as.numeric(difftime(sim_end_time, sim_start_time, units="hours"))
+    print(paste("Time taken for simulation", q, ":", time_per_sim[q], "hours"))
   }
+  
+  total_end_time <- Sys.time()
+  total_duration <- as.numeric(difftime(total_end_time, total_start_time, units="hours"))
+  print(paste("Total time taken for all simulations:", total_duration, "hours"))
+  
   
   folder_path <- scenario_name
   if (!file.exists(folder_path)) {
@@ -783,57 +847,28 @@ remove_0_values_take_min<- function(x){
                                      paste0("location_",scenario_name)))
   saveRDS(initial_locs_matrix, file = file.path(folder_path,
                                                 paste0("initial_locs_",scenario_name)))
-  saveRDS(haplotype_export, file.path(folder_path, "haplotype_export.rds"))
-  saveRDS(haplotype_import, file.path(folder_path, "haplotype_import.rds")) 
-  saveRDS(od_matrix, file.path(folder_path, "origin_dest_matrix.rds"))
+  # Write timing logs to a file
+  timing_log <- data.frame(
+    Simulation = 1:n_sim,
+    TimeTaken = time_per_sim
+  )
+  timing_log <- rbind(timing_log, data.frame(Simulation = "Total", TimeTaken = total_duration))
+  write.csv(timing_log, file = file.path(folder_path, "timing_log.csv"), row.names = FALSE)
+  saveRDS(od_matrix, file = file.path(folder_path, paste0("od_matrix_", scenario_name)))
   print(scenario_name)
   print(q)
-# }
+}
 
-# run_biting_sim(
-#   pr_symp_infec = 0.05,
-#   pr_symp_non_infec = 0.05,
-#   pr_clear = 0.85,
-#   pr_off_feed = 0.01,
-#   pr_on_feed_rainy = 0.15,
-#   pr_on_feed_dry = 0.05,
-#   pr_on_feed_moderate = 0.1,
-#   pr_hum_to_mos = 0.6,
-#   pr_mos_to_hum = 0.3,
-#   num_loc = num_loc,
-#   pr_num_biting = c(0.6, 0.35, 0.04, 0.01, 0, 0, 0),
-#   n_m = n_m,
-#   proportion_suceptible = 0.2,
-#   pr_suceptibility = 0.01,
-#   pr_nonSuceptibility = 0.005,
-#   n_p = n_p,
-#   proportion_mobile = 0.8,
-#   pr_move = rep(0.5, num_loc),
-#   n_days = 730,
-#   scenario_name = "even_track_new_test",
-#   n_sim = 1,
-#   prob_matrix = prob_matrix
-# )
 
-pr_symp_infec = 0.05
-pr_symp_non_infec = 0.05
-pr_clear = 0.85
-pr_off_feed = 0.01
-pr_on_feed_rainy = 0.15
-pr_on_feed_dry = 0.05
-pr_on_feed_moderate = 0.1
-pr_hum_to_mos = 0.6
-pr_mos_to_hum = 0.3
-num_loc = num_loc
-pr_num_biting = c(0.6, 0.35, 0.04, 0.01, 0, 0, 0)
-n_m = n_m
-proportion_suceptible = 0.2
-pr_suceptibility = 0.01
-pr_nonSuceptibility = 0.005
-n_p = n_p
-proportion_mobile = 0.9
-pr_move = rep(0.9, num_loc)
-n_days = 730
-scenario_name = "even_track_new_test"
-n_sim = 1
-prob_matrix = prob_matrix
+
+# Current parameters
+prob_matrix <- matrix(0.45, nrow = num_loc, ncol = num_loc)
+diag(prob_matrix) <- NA
+run_biting_sim(pr_symp_infec = 0.05, pr_symp_non_infec = 0.05, pr_clear = 0.85, pr_off_feed = 0.01, 
+               pr_on_feed_rainy = 0.14, pr_on_feed_dry = 0.05*0.14/0.15, pr_on_feed_moderate = 0.1*0.14/0.15, 
+               pr_hum_to_mos = 0.6, pr_mos_to_hum = 0.3, num_loc = num_loc, 
+               pr_num_biting = c(0.6, 0.33, 0.033, 0.008, 0, 0, 0), n_m = n_m, proportion_suceptible = 0.185, 
+               pr_suceptibility = 0.008, pr_nonSuceptibility = 0.005, n_p = n_p, proportion_mobile = 0.9, 
+               pr_move = rep(0.9, num_loc), n_days = 730, scenario_name = "Validated_parameters_even", 
+               n_sim = 5, prob_matrix = prob_matrix
+)
