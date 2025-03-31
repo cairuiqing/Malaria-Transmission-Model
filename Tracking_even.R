@@ -6,14 +6,14 @@ library(Rcpp)
 sourceCpp("get_biting_status.cpp")
 
 ######################################################
-########Fixed Parameters and re-used functions#######
-#####################################################
+######## Fixed Parameters and Re-used Functions ####
+######################################################
 n_p <- c(20, 20, 20)
 n_m <- c(3000, 3000, 3000)
 
 num_loc <- length(n_p)
 
-# day numbering, sample days etc.
+# Day numbering, sample days, etc.
 mos_sample_days <- seq(from = 365, to = 730, by = 7)
 hum_sample_days <- seq(from = 365, to = 730, by = 30)
 
@@ -21,7 +21,7 @@ dry_days <- c(1:59, 305:424, 670:730)
 rainy_days <- c(60:151, 425:516)
 moderate_days <- c(152:304, 517:669)
 
-# haplotype frequencies
+# Read haplotype frequencies from CSV
 hap_table_csv <- read.csv("haplotype_frequencies.csv")
 
 human_freq_data <- hap_table_csv %>%
@@ -36,8 +36,7 @@ mos_freq_data <- hap_table_csv %>%
 mos_haps <- mos_freq_data$haplotype_number
 mos_freq <- mos_freq_data$frequency
 
-mos_gt_df <- data.frame(haps = mos_haps, 
-                        freq = mos_freq)
+mos_gt_df <- data.frame(haps = mos_haps, freq = mos_freq)
 
 csp_total <- hap_table_csv %>%
   filter(gene == "CSP") %>%
@@ -51,8 +50,8 @@ gt_df <- data.frame(hap = csp_total$haplotype_number,
                     freq_cat = csp_total$freq_category)
 
 haps <- unique(csp_total$haplotype_number)
-# functions to get infection status and haplotype composition for humans and mosquitoes
 
+# Function to get infection status for humans based on age
 get_infection <- function(x) {
   inf <- ifelse(x < 2, 0,
                 ifelse(x < 3, rbinom(1, size = 1, p = 0.05),
@@ -61,6 +60,7 @@ get_infection <- function(x) {
   return(inf)
 }
 
+# Function to get multiplicity of infection (MOI) for humans based on age
 get_moi <- function(x) {
   moi <- ifelse(x < 3, rtpois(1, 4, a = 0, b = 5),
                 ifelse(x < 4, rtpois(1, 6, a = 0, b = 10),
@@ -68,34 +68,37 @@ get_moi <- function(x) {
   return(moi)
 }
 
+# Function to assign haplotypes to a human infection based on MOI
 get_pers_infec <- function(x, haps, freq) {
   haps_index <- sample(haps, size = x, prob = freq)
   return(haps_index)
 }
 
+# Function to get old infections for humans (if any haplotype age >= 7)
 get_old_p_infec2 <- function(x) {
   return((rowSums(x >= 7) > 0) * 1)
 }
 
+# Function to simulate mosquito death based on age
 get_mos_death3 <- function(x) {
   thresholds <- c(3, 6, 9, 12, 15, Inf)
   probs <- c(0.01, 0.05, 0.1, 0.25, 0.5, 0.7)
   return(rbinom(length(x), size = 1, p = probs[sapply(x, function(i) sum(i > thresholds)) + 1]))
 }
 
+# Function to remove zero values and take minimum of non-zero entries
 remove_0_values_take_min <- function(x) {
   if(length(x[x > 0]) > 0) {
-    min <- min(x[x > 0])
+    min_val <- min(x[x > 0])
   } else {
-    min <- 0
+    min_val <- 0
   }
-  return(min)
+  return(min_val)
 }
 
 #############################
-#### Simulation function ####
-############################
-
+#### Simulation Function ####
+#############################
 run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_feed, pr_on_feed_rainy, pr_on_feed_dry, 
                            pr_on_feed_moderate, pr_hum_to_mos, pr_mos_to_hum, num_loc, 
                            pr_num_biting, n_m, n_p, scenario_name, n_sim, 
@@ -113,7 +116,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
   location <- array(NA, c(sum(n_p), n_days, n_sim))
   initial_locs_matrix <- matrix(NA, nrow = sum(n_p), n_sim)
   
-  ## 初始化全局追踪日志（跨simulation累积）
+  ## Initialize global tracking logs (accumulated across simulations)
   global_movement_log    <- data.frame(PersonID = integer(), Origin = character(), 
                                        Destination = character(), Day = integer(), Simulation = integer())
   global_human_to_mos_log <- data.frame(PersonID = integer(), MosquitoID = integer(),
@@ -122,14 +125,14 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
                                        TargetPersonID = integer(), MosquitoID = integer(),
                                        HaplotypeID = character(), Day = integer(), Simulation = integer())
   
-  # 预先读取单倍型数据，用于蚊子感染
+  # Pre-read haplotype frequency data for mosquito infection
   hap_freq <- gt_df$freq
   hap_ids <- as.character(gt_df$hap)
   
   for(q in 1:n_sim) {
-    sim_start_time <- Sys.time() # Starting time for current simulation
+    sim_start_time <- Sys.time()  # Start time for current simulation
     
-    ## 每个simulation独立的追踪日志和蚊子感染来源向量（总蚊子数量 = sum(n_m)）
+    ## Initialize simulation-specific tracking logs and mosquito infection origin vector
     movement_log    <- data.frame(PersonID = integer(), Origin = character(), 
                                   Destination = character(), Day = integer())
     human_to_mos_log <- data.frame(PersonID = integer(), MosquitoID = integer(),
@@ -139,25 +142,25 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
                                   HaplotypeID = character(), Day = integer())
     mosquito_origin <- rep(NA_character_, times = sum(n_m))
     
-    # initial locations for people
+    # Initialize people's locations
     init_locs_p <- rep(1:num_loc, n_p)
     initial_locs_matrix[, q] <- init_locs_p
     
-    # initial locations for mosquitoes
+    # Initialize mosquitoes' locations
     init_locs_m <- rep(1:num_loc, n_m)
     
     human_locs <- init_locs_p
     
     age_m <- rtpois(sum(n_m), 4, a = 0, b = 14)
     
-    # starting infection status for people and mosquitoes
+    # Set starting infection status for people and mosquitoes
     inf_p <- rbinom(sum(n_p), size = 1, p = 0.3)
     moi_p <- ifelse(inf_p == 1, rtpois(1, 2, a = 0, b = 16), 0)
     
     inf_m <- sapply(age_m, get_infection)
     moi_m <- ifelse(inf_m == 0, 0, sapply(age_m[inf_m == 1], get_moi))
     
-    # 分配haplotypes到各个地点
+    # Distribute haplotypes to locations
     haps_per_loc_low <- c(rep(floor(length(which(gt_df$freq_cat == 1)) / length(n_p)), length(n_p) - 1),
                           length(which(gt_df$freq_cat == 1)) - sum(rep(floor(length(which(gt_df$freq_cat == 1)) / length(n_p)), length(n_p) - 1)))
     haps_per_loc_med <- c(rep(floor(length(which(gt_df$freq_cat == 2)) / length(n_p)), length(n_p) - 1),
@@ -178,7 +181,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       gt_df_new <- gt_df_new[-which(gt_df_new$hap %in% unlist(hap_loc_list[[i]])), ]
     }
     
-    # 初始化人群感染haplotypes
+    # Initialize human infection haplotypes
     infec_p <- list()
     for(i in 1:num_loc) {
       mois <- moi_p[which(init_locs_p == i)]
@@ -197,7 +200,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       }
     }
     
-    # 初始化蚊子haplotypes
+    # Initialize mosquito infection haplotypes
     infec_m <- list()
     for(i in 1:num_loc) {
       mois <- moi_m[which(init_locs_m == i)]
@@ -241,23 +244,25 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     last_day <- rep(0, sum(n_p))
     length_trip <- rep(0, sum(n_p))
     
-    # 为简化示例，假设mosquito_infectious为所有蚊子在叮咬时均具传染性（实际可根据年龄等条件调整）
+    # For simplicity, assume all mosquitoes are infectious at biting time
     mosquito_infectious <- rep(TRUE, sum(n_m))
-    # 同时预设一个用于存储蚊子携带的单倍型（初始设为NA）
+    # Pre-allocate a vector to store the haplotype carried by each mosquito (initially NA)
     mosquito_hap_id <- rep(NA_character_, sum(n_m))
     
     ##############################
-    #### Start of daily loop #####
-    #############################
+    #### Start of Daily Loop #####
+    ##############################
     for(r in 1:n_days) {
-      # 更新蚊子和人haplotype年龄
+      # Increment mosquito age by one day
       age_m <- age_m + 1
       age_haps_m <- age_haps_m + 1
       age_haps_m[age_haps_m == 1] <- 0
+      
+      # Increment human haplotype ages
       age_haps_p <- age_haps_p + 1
       age_haps_p[age_haps_p == 1] <- 0
       
-      # 蚊子死亡及更新
+      # Process mosquito deaths and update corresponding states
       death_m <- get_mos_death3(age_m)
       age_m[which(death_m == 1)] <- 0
       inf_m[which(death_m == 1)] <- 0
@@ -266,14 +271,14 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       age_haps_m[death_m == 1, ] <- 0
       bit_last_3_days[death_m == 1] <- 0
       
-      # 症状处理
+      # Process symptomatic infections (increment symptom age, clear if over threshold)
       symp_age[which(symp_age != 0)] <- symp_age[which(symp_age != 0)] + 1
       symp_age[symp_age > 14] <- 0
       symp_index[old_pers_infec == 1] <- rbinom(length(old_pers_infec[old_pers_infec == 1]), 1, pr_symp_infec)
       symp_index[old_pers_infec == 0] <- rbinom(length(old_pers_infec[old_pers_infec == 0]), 1, pr_symp_non_infec)
       symp_age[which(symp_index == 1 & old_pers_infec == 1)] <- 1
       
-      # 清除人群体内的parasites（省略部分细节）
+      # Clear human parasites by age of parasites
       for(i in 1:sum(n_p)) {
         if(sum(!is.na(infec_p[[i]])) > 0) {           
           for(j in na.omit(infec_p[[i]])) {
@@ -289,9 +294,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       }
       
       ################################
-      ######## 人员移动阶段 #########
+      ######## Personnel Movement ####
       ################################
-      # 重置部分：处理上次移动结束返回原位
+      # Reset: for individuals whose movement ended in the previous day, return to initial location
       for(p in 1:sum(n_p)) {
         if(last_day[p] == 1) {
           human_locs[p] <- init_locs_p[p]
@@ -302,7 +307,6 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       
       humans_moving <- rep(0, sum(n_p))
       for(i in 1:length(n_p)) {
-        # 对于同一地点、且具备移动资格的人
         idx <- which(human_locs == i & mobile_humans == 1 & (length_trip - days_away == 0))
         if(length(idx) > 0)
           humans_moving[idx] <- rbinom(length(idx), 1, pr_move[i])
@@ -314,16 +318,14 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       last_day <- rep(0, sum(n_p))
       last_day[which(length_trip - days_away == 1 | length_trip == 1)] <- 1
       
-      # 人员移动：如果某人发生移动，则更新其位置，并记录移动事件（仅记录感染者的移动）
+      # Process personnel movement: if an individual moves, update their location and record the event if they are infected.
       for(i in 1:sum(n_p)) {
-        # 假设根据模型规则，每人每天最多移动一次
-        # 如果该人发生移动，则更新其位置
         if(humans_moving[i] == 1) {
           current_loc <- human_locs[i]
-          # 随机选择一个新地点，排除原地点
+          # Randomly select a new location excluding current one
           new_loc <- sample((1:num_loc)[-current_loc], size = 1, prob = prob_matrix[current_loc, -current_loc])
-          # 如果该人已感染，则记录移动事件
-          if( (r > 1) && (symp_index[i] == 1 || old_pers_infec[i] == 1) ) {
+          # If the individual is infected (here we check via symptom index or old infection flag), record the movement event
+          if((r > 1) && (symp_index[i] == 1 || old_pers_infec[i] == 1)) {
             movement_log <- rbind(movement_log, data.frame(
               PersonID = i,
               Origin = as.character(current_loc),
@@ -337,7 +339,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       location[, r, q] <- human_locs
       
       ################################
-      #### 蚊虫叮咬与传播阶段 #######
+      #### Mosquito Biting & Transmission
       ################################
       mos_bite <- matrix(0, sum(n_m), sum(n_p))
       which_mos_bite <- rep(0, sum(n_m))
@@ -368,13 +370,14 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       }
       bit_last_3_days[which_mos_bite == 1] <- 1
       
-      # 蚊虫与人体的交互：遍历每个被叮咬的人
+      # Process interactions: For each bitten person, simulate transmission events
       for(i in which(person_bitten == 1)) {
         mos_index1 <- mos_bite[, i] == 1
         mos_index <- which(mos_index1)
         inf_bites <- rep(0, length(mos_index))
         for(j in 1:length(mos_index)) {
-          # 人 -> 蚊 传播：如果该人体内有足够老的haplotypes（>=14天），并且其症状状态符合条件，则进行单倍型转移
+          # Human-to-mosquito transmission: if the human has old haplotypes (>=14 days) and meets conditions,
+          # then transfer haplotype(s) from human to mosquito.
           old_haps_p_i <- which(age_haps_p[i, ] >= 14)
           if(length(old_haps_p_i) > 0 && symp_age[i] < 1) {
             transfer_haps <- rep(NA, length(old_haps_p_i))
@@ -383,17 +386,17 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
               transfer <- rbinom(1, 1, prob)
               if(transfer == 1) {
                 transfer_haps[k] <- old_haps_p_i[k]
-                # 如果该人在今天发生了移动，则记录人传蚊事件
+                # If the human moved today, record the human-to-mosquito event
                 if(any(movement_log$PersonID == i & movement_log$Day == r)) {
                   origin_addr <- movement_log$Origin[movement_log$PersonID == i & movement_log$Day == r][1]
                   human_to_mos_log <- rbind(human_to_mos_log, data.frame(
                     PersonID = i,
                     MosquitoID = mos_index[j],
-                    Location = as.character(human_locs[i]),  # 新地址
+                    Location = as.character(human_locs[i]),  # New location
                     HaplotypeID = as.character(transfer_haps[k]),
                     Day = r
                   ))
-                  # 若该蚊子尚未记录感染来源，则记录之
+                  # If the mosquito has not been assigned an origin yet, assign the human's original address as its origin.
                   if(is.na(mosquito_origin[mos_index[j]])) {
                     mosquito_origin[mos_index[j]] <- origin_addr
                   }
@@ -404,7 +407,8 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
             infec_m[[mos_index[j]]] <- c(infec_m[[mos_index[j]]], new_haps)
             age_haps_m[mos_index[j], new_haps] <- 1
           }
-          # 蚊 -> 人 传播：如果该蚊子体内有足够老的haplotypes（>=9天），且目标人当前未表现出症状，则进行单倍型转移
+          # Mosquito-to-human transmission: if the mosquito has old haplotypes (>=9 days) and the human is susceptible,
+          # then transfer haplotype(s) from mosquito to human.
           old_haps_m_j <- which(age_haps_m[mos_index[j], ] >= 9)
           if(length(old_haps_m_j) > 0 && symp_age[i] == 0) {
             transfer_haps_m <- rep(NA, length(old_haps_m_j))
@@ -420,7 +424,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
             age_haps_p[i, new_haps_m] <- 1
             if(length(new_haps_m) > 0) {
               inf_bites[j] <- 1
-              # 如果该蚊子原先已因移动感染者而获得单倍型（mosquito_origin非NA），则记录完整传播链事件
+              # If the mosquito was infected from a mobile individual (mosquito_origin not NA), record the full transmission chain
               if(!is.na(mosquito_origin[mos_index[j]])) {
                 trans_chain_log <- rbind(trans_chain_log, data.frame(
                   OriginAddress = as.character(mosquito_origin[mos_index[j]]),
@@ -437,9 +441,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
         if(r >= 365) {
           num_infec_bites[i] <- num_infec_bites[i] + sum(inf_bites)
         }
-      } # end for each bitten person
+      }  # End for each bitten person
       
-      # 若为蚊子抽样日，处理样本采集（保持原逻辑）
+      # If today is a mosquito sampling day, process sampling (keep original logic)
       if(r %in% mos_sample_days) {
         sample_index <- sample(1:sum(n_m), size = 30)
         mos_moi <- rep(NA, 30)
@@ -460,9 +464,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
         }
       }
       
-      # 更新每天的人类haplotype年龄存储
+      # Store daily human haplotype ages
       age_human_haps_array[, ((1 + (length(haps) * (r - 1))):(length(haps) * r)), q] <- age_haps_p
-    }  # end of daily loop
+    }  # End of daily loop
     
     eir_df[q, ] <- num_infec_bites
     age_mos_df[q, ] <- age_m
@@ -470,15 +474,14 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     time_per_sim[q] <- as.numeric(difftime(sim_end_time, sim_start_time, units = "hours"))
     print(paste("Time taken for simulation", q, ":", time_per_sim[q], "hours"))
     
-    ## 将当前simulation的追踪日志添加上simulation编号后，累积到全局日志中
+    ## Add simulation-specific tracking logs with simulation number, and accumulate to global logs
     movement_log$Simulation <- q
     human_to_mos_log$Simulation <- q
     trans_chain_log$Simulation <- q
     global_movement_log <- rbind(global_movement_log, movement_log)
     global_human_to_mos_log <- rbind(global_human_to_mos_log, human_to_mos_log)
     global_trans_chain_log <- rbind(global_trans_chain_log, trans_chain_log)
-    
-  }  # end for each simulation replicate
+  }  # End for each simulation replicate
   
   total_end_time <- Sys.time()
   total_duration <- as.numeric(difftime(total_end_time, total_start_time, units = "hours"))
@@ -500,7 +503,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
   saveRDS(location, file = file.path(folder_path, paste0("location_", scenario_name)))
   saveRDS(initial_locs_matrix, file = file.path(folder_path, paste0("initial_locs_", scenario_name)))
   
-  # 写入时间日志
+  # Write timing log to CSV file
   timing_log <- data.frame(
     Simulation = 1:n_sim,
     TimeTaken = time_per_sim
@@ -508,16 +511,34 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
   timing_log <- rbind(timing_log, data.frame(Simulation = "Total", TimeTaken = total_duration))
   write.csv(timing_log, file = file.path(folder_path, "timing_log.csv"), row.names = FALSE)
   
-  # 将追踪日志写入CSV文件
+  # Write global tracking logs to CSV files
   write.csv(global_movement_log, file = file.path(folder_path, paste0("movement_log_", scenario_name, ".csv")), row.names = FALSE)
   write.csv(global_human_to_mos_log, file = file.path(folder_path, paste0("human_to_mos_log_", scenario_name, ".csv")), row.names = FALSE)
   write.csv(global_trans_chain_log, file = file.path(folder_path, paste0("transmission_chain_log_", scenario_name, ".csv")), row.names = FALSE)
+  
+  ## Create an origin-destination (OD) matrix based on the global_trans_chain_log
+  # Rows: Origin; Columns: Destination; Diagonals set to 0.
+  od_matrix <- matrix(0, nrow = num_loc, ncol = num_loc)
+  rownames(od_matrix) <- as.character(1:num_loc)
+  colnames(od_matrix) <- as.character(1:num_loc)
+  
+  if(nrow(global_trans_chain_log) > 0) {
+    for(i in 1:nrow(global_trans_chain_log)) {
+      origin <- as.character(global_trans_chain_log$OriginAddress[i])
+      destination <- as.character(global_trans_chain_log$TargetAddress[i])
+      if(origin != destination) {  # Ignore self-transmission
+        od_matrix[origin, destination] <- od_matrix[origin, destination] + 1
+      }
+    }
+  }
+  # Write OD matrix to CSV file
+  write.csv(od_matrix, file = file.path(folder_path, paste0("OD_matrix_", scenario_name, ".csv")), row.names = TRUE)
   
   print(scenario_name)
   print(q)
 }
 
-# 当前参数调用示例
+# Example parameter call
 prob_matrix <- matrix(0.45, nrow = num_loc, ncol = num_loc)
 diag(prob_matrix) <- NA
 run_biting_sim(pr_symp_infec = 0.05, pr_symp_non_infec = 0.05, pr_clear = 0.85, pr_off_feed = 0.01, 
