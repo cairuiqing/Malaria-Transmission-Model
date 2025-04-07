@@ -8,8 +8,8 @@ sourceCpp("get_biting_status.cpp")
 ######################################################
 ######## Fixed Parameters and Re-used Functions ####
 ######################################################
-n_p <- c(20, 20, 20)
-n_m <- c(3000, 3000, 3000)
+n_p <- c(200, 200, 200, 200, 200, 200)
+n_m <- c(30000, 30000, 30000, 30000, 30000, 30000)
 
 num_loc <- length(n_p)
 
@@ -600,5 +600,5 @@ run_biting_sim_op(pr_symp_infec = 0.05, pr_symp_non_infec = 0.05, pr_clear = 0.8
                pr_hum_to_mos = 0.6, pr_mos_to_hum = 0.3, num_loc = num_loc, 
                pr_num_biting = c(0.6, 0.34, 0.03, 0.003, 0, 0, 0), n_m = n_m, proportion_suceptible = 0.2, 
                pr_suceptibility = 0.01, pr_nonSuceptibility = 0.005, n_p = n_p, proportion_mobile = 0.1, 
-               pr_move = rep(0.03, num_loc), n_days = 730, scenario_name = "even_tracking_test_2", 
-               n_sim = 1, prob_matrix = prob_matrix)
+               pr_move = rep(0.03, num_loc), n_days = 730, scenario_name = "Tracking_even_final", 
+               n_sim = 5, prob_matrix = prob_matrix)
