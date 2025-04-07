@@ -145,50 +145,53 @@ create_tracking_logs <- function() {
 #' @return List containing sampled haplotypes for each position
 sample_haplotypes_by_freq <- function(gt_df, n_p, haps_per_loc_low, haps_per_loc_med, haps_per_loc_high) {
   # Validate that all input vectors have the same length
-  if (length(n_p) != length(haps_per_loc_low) || 
-      length(n_p) != length(haps_per_loc_med) || 
-      length(n_p) != length(haps_per_loc_high)) {
+  if (length(n_p) != length(haps_per_loc_low) ||
+    length(n_p) != length(haps_per_loc_med) ||
+    length(n_p) != length(haps_per_loc_high)) {
     stop("n_p, haps_per_loc_low, haps_per_loc_med and haps_per_loc_high must have the same length")
   }
-  
+
   # Initialize result list and working data frame
   hap_loc_list <- vector(mode = "list", length = length(n_p))
-  gt_df_new <- gt_df  # Create a copy to modify
-  
+  gt_df_new <- gt_df # Create a copy to modify
+
   # Process each position
   for (i in 1:length(n_p)) {
     # Sample from low frequency category (freq_cat = 1)
     low_samples <- if (haps_per_loc_low[i] > 0) {
       sample(gt_df_new$hap[gt_df_new$freq_cat == 1],
-             size = haps_per_loc_low[i], replace = FALSE)
+        size = haps_per_loc_low[i], replace = FALSE
+      )
     } else {
-      character(0)  # Return empty vector if no samples requested
+      character(0) # Return empty vector if no samples requested
     }
-    
+
     # Sample from medium frequency category (freq_cat = 2)
     med_samples <- if (haps_per_loc_med[i] > 0) {
       sample(gt_df_new$hap[gt_df_new$freq_cat == 2],
-             size = haps_per_loc_med[i], replace = FALSE)
+        size = haps_per_loc_med[i], replace = FALSE
+      )
     } else {
       character(0)
     }
-    
+
     # Sample from high frequency category (freq_cat = 3)
     high_samples <- if (haps_per_loc_high[i] > 0) {
       sample(gt_df_new$hap[gt_df_new$freq_cat == 3],
-             size = haps_per_loc_high[i], replace = FALSE)
+        size = haps_per_loc_high[i], replace = FALSE
+      )
     } else {
       character(0)
     }
-    
+
     # Combine samples from all frequency categories
     hap_loc_list[[i]] <- c(low_samples, med_samples, high_samples)
-    
+
     # Remove sampled haplotypes from the working data frame
     # to avoid sampling the same haplotype multiple times
     gt_df_new <- gt_df_new[!gt_df_new$hap %in% unlist(hap_loc_list[[i]]), ]
   }
-  
+
   return(hap_loc_list)
 }
 
