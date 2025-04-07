@@ -204,12 +204,11 @@ sample_haplotypes_by_freq <- function(gt_df, n_p, haps_per_loc_low, haps_per_loc
 #' @param hap_loc_list List containing haplotype IDs for each location
 #' @param gt_df Data frame containing haplotype frequencies (must have 'hap' and 'freq' columns)
 #' @param get_pers_infec Function that generates personal infections given MOI, haplotypes, and frequencies
-#' 
+#'
 #' @return A nested list of infection haplotypes, structured by location and individual
-#' 
-initialize_human_infection_haplotypes <- function(num_loc, init_locs_p, moi_p, n_p, 
-                                          hap_loc_list, gt_df, get_pers_infec) {
-  
+#'
+initialize_human_infection_haplotypes <- function(num_loc, init_locs_p, moi_p, n_p,
+                                                  hap_loc_list, gt_df, get_pers_infec) {
   # Input validation
   stopifnot(
     length(init_locs_p) == length(moi_p),
@@ -217,11 +216,11 @@ initialize_human_infection_haplotypes <- function(num_loc, init_locs_p, moi_p, n
     length(hap_loc_list) == num_loc,
     all(c("hap", "freq") %in% names(gt_df))
   )
-  
+
   # Pre-allocate result list for better performance
   infec_p <- vector("list", num_loc)
   for (i in 1:num_loc) {
-    mois <- moi_p[which(init_locs_p == i)] 
+    mois <- moi_p[which(init_locs_p == i)]
     inf_p_loc <- vector("list", n_p[i])
     for (j in 1:n_p[i]) {
       inf_p_loc[[j]] <- list(get_pers_infec(mois[j], hap_loc_list[[i]], gt_df$freq[which(gt_df$hap %in% hap_loc_list[[i]])]))
