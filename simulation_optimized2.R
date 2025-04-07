@@ -263,6 +263,8 @@ combine_human_and_mos_haplotypes <- function(gt_df_new, n_p, haps_per_loc_low, h
   )
 }
 
+
+
 run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_feed, pr_on_feed_rainy, pr_on_feed_dry,
                            pr_on_feed_moderate, pr_hum_to_mos, pr_mos_to_hum, num_loc,
                            pr_num_biting, n_m, n_p, scenario_name, n_sim,
