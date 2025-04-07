@@ -195,6 +195,42 @@ sample_haplotypes_by_freq <- function(gt_df, n_p, haps_per_loc_low, haps_per_loc
   return(hap_loc_list)
 }
 
+#' Initialize human infection haplotypes for multiple locations
+#'
+#' @param num_loc Integer, number of locations to initialize
+#' @param init_locs_p Vector specifying which initial locations belong to which position
+#' @param moi_p Vector of multiplicity of infection (MOI) values for each location
+#' @param n_p Vector specifying number of infections per location
+#' @param hap_loc_list List containing haplotype IDs for each location
+#' @param gt_df Data frame containing haplotype frequencies (must have 'hap' and 'freq' columns)
+#' @param get_pers_infec Function that generates personal infections given MOI, haplotypes, and frequencies
+#' 
+#' @return A nested list of infection haplotypes, structured by location and individual
+#' 
+initialize_human_infection_haplotypes <- function(num_loc, init_locs_p, moi_p, n_p, 
+                                          hap_loc_list, gt_df, get_pers_infec) {
+  
+  # Input validation
+  stopifnot(
+    length(init_locs_p) == length(moi_p),
+    length(n_p) == num_loc,
+    length(hap_loc_list) == num_loc,
+    all(c("hap", "freq") %in% names(gt_df))
+  )
+  
+  # Pre-allocate result list for better performance
+  infec_p <- vector("list", num_loc)
+  for (i in 1:num_loc) {
+    mois <- moi_p[which(init_locs_p == i)] 
+    inf_p_loc <- vector("list", n_p[i])
+    for (j in 1:n_p[i]) {
+      inf_p_loc[[j]] <- list(get_pers_infec(mois[j], hap_loc_list[[i]], gt_df$freq[which(gt_df$hap %in% hap_loc_list[[i]])]))
+    }
+    infec_p[[i]] <- inf_p_loc
+  }
+  return(infec_p)
+}
+
 run_biting_sim_op <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_feed, pr_on_feed_rainy, pr_on_feed_dry,
                               pr_on_feed_moderate, pr_hum_to_mos, pr_mos_to_hum, num_loc,
                               pr_num_biting, n_m, n_p, scenario_name, n_sim,
@@ -213,7 +249,7 @@ run_biting_sim_op <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off
     simulation_data <- create_simulation_data_structures(n_days, people_total, mosquito_total, haps)
     # Initialize people's locations
     init_locs_p <- rep(1:num_loc, n_p)
-    initial_locs_matrix[, q] <- init_locs_p
+    simulation_data$initial_locs_matrix[, 1] <- init_locs_p
 
     # Initialize mosquitoes' locations
     init_locs_m <- rep(1:num_loc, n_m)
@@ -242,6 +278,7 @@ run_biting_sim_op <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off
       length(which(gt_df$freq_cat == 3)) - sum(rep(floor(length(which(gt_df$freq_cat == 3)) / length(n_p)), length(n_p) - 1))
     )
     hap_loc_list <- sample_haplotypes_by_freq(gt_df, n_p, haps_per_loc_low, haps_per_loc_med, haps_per_loc_high)
+    infec_p <- initialize_human_infection_haplotypes(num_loc, init_locs_p, moi_p, n_p, hap_loc_list, gt_df, get_pers_infec)
     sim_end_time <- Sys.time()
     cat(sprintf("Round %d ended at %s\n", sim_round, sim_start_time))
   }
