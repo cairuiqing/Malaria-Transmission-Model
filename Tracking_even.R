@@ -96,6 +96,52 @@ remove_0_values_take_min <- function(x) {
   return(min_val)
 }
 
+create_simulation_data_structures <- function(sim_round, n_days, people_total, mosquito_total, haps) {
+  simulation_data <- list()
+  simulation_data$mosquito_MOI_df <- matrix(NA, nrow = 1, ncol = 30 * n_days)
+  simulation_data$eir_df <- matrix(NA, nrow = 1, ncol = people_total)
+  simulation_data$age_mos_df <- matrix(NA, nrow = 1, ncol = mosquito_total)
+  simulation_data$age_human_haps_arr <- array(NA, dim = c(people_total, length(haps) * n_days, 1))
+  simulation_data$symptoms <- array(NA, dim = c(people_total, n_days, 1))
+  simulation_data$location <- array(NA, dim = c(people_total, n_days, 1))
+  simulation_data$initial_locs_matrix <- matrix(NA, nrow = people_total, ncol = 1)
+  return(simulation_data)
+}
+
+create_tracking_logs <- function() {
+  tracking_logs <- list()
+    tracking_logs$movement_log    <- data.frame(PersonID = integer(), Origin = character(), 
+                                  Destination = character(), Day = integer())
+    tracking_logs$human_to_mos_log <- data.frame(PersonID = integer(), MosquitoID = integer(),
+                                   Location = character(), HaplotypeID = character(), Day = integer())
+    tracking_logs$trans_chain_log <- data.frame(OriginAddress = character(), TargetAddress = character(),
+                                  TargetPersonID = integer(), MosquitoID = integer(),
+                                  HaplotypeID = character(), Day = integer())
+  return(tracking_logs)
+}
+
+run_biting_sim_op <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_feed, pr_on_feed_rainy, pr_on_feed_dry, 
+                           pr_on_feed_moderate, pr_hum_to_mos, pr_mos_to_hum, num_loc, 
+                           pr_num_biting, n_m, n_p, scenario_name, n_sim, 
+                           proportion_suceptible, pr_suceptibility, pr_nonSuceptibility, n_days, 
+                           proportion_mobile, pr_move, prob_matrix) {
+  # Pre-read haplotype frequency data for mosquito infection
+  hap_freq <- gt_df$freq
+  hap_ids <- as.character(gt_df$hap)
+  
+  for (sim_round in n_sim) {
+    sim_start_time <- Sys.time()  # Start time for current simulation
+    cat(sprintf("Round %d started at %s", sim_round, sim_start_time))
+    tracking_logs <- create_tracking_log()
+    sim_end_time <- Sys.time()
+    cat(sprintf("Round %d ended at %s", sim_round, sim_start_time))       
+  }
+  
+  cat("Finished running run_biting_sim\n")
+}
+  
+
+
 #############################
 #### Simulation Function ####
 #############################
@@ -541,7 +587,15 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
 # Example parameter call
 prob_matrix <- matrix(0.45, nrow = num_loc, ncol = num_loc)
 diag(prob_matrix) <- NA
-run_biting_sim(pr_symp_infec = 0.05, pr_symp_non_infec = 0.05, pr_clear = 0.85, pr_off_feed = 0.01, 
+# run_biting_sim(pr_symp_infec = 0.05, pr_symp_non_infec = 0.05, pr_clear = 0.85, pr_off_feed = 0.01, 
+#                pr_on_feed_rainy = 0.135, pr_on_feed_dry = 0.05 * 0.135 / 0.15, pr_on_feed_moderate = 0.1 * 0.135 / 0.15, 
+#                pr_hum_to_mos = 0.6, pr_mos_to_hum = 0.3, num_loc = num_loc, 
+#                pr_num_biting = c(0.6, 0.34, 0.03, 0.003, 0, 0, 0), n_m = n_m, proportion_suceptible = 0.2, 
+#                pr_suceptibility = 0.01, pr_nonSuceptibility = 0.005, n_p = n_p, proportion_mobile = 0.1, 
+#                pr_move = rep(0.03, num_loc), n_days = 730, scenario_name = "even_tracking_test_2", 
+#                n_sim = 1, prob_matrix = prob_matrix)
+
+run_biting_sim_op(pr_symp_infec = 0.05, pr_symp_non_infec = 0.05, pr_clear = 0.85, pr_off_feed = 0.01, 
                pr_on_feed_rainy = 0.135, pr_on_feed_dry = 0.05 * 0.135 / 0.15, pr_on_feed_moderate = 0.1 * 0.135 / 0.15, 
                pr_hum_to_mos = 0.6, pr_mos_to_hum = 0.3, num_loc = num_loc, 
                pr_num_biting = c(0.6, 0.34, 0.03, 0.003, 0, 0, 0), n_m = n_m, proportion_suceptible = 0.2, 
