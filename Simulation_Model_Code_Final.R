@@ -8,8 +8,8 @@ sourceCpp("get_biting_status.cpp")
 ######################################################
 ######## Fixed Parameters and Re-used Functions ####
 ######################################################
-n_p <- c(400, 400, 200, 200, 200, 200)
-n_m <- c(60000, 60000, 30000, 30000, 30000, 30000)
+n_p <- c(20, 20, 10, 10, 10, 10)
+n_m <- c(3000, 3000, 1500, 1500, 1500, 1500)
 
 num_loc <- length(n_p)
 
@@ -96,6 +96,11 @@ remove_0_values_take_min <- function(x) {
   return(min_val)
 }
 
+.format_dur <- function(secs) {
+  h <- floor(secs/3600); m <- floor((secs %% 3600)/60); s <- round(secs %% 60, 1)
+  sprintf("%02dh:%02dm:%04.1fs", h, m, s)
+}
+
 #############################
 #### Simulation Function ####
 #############################
@@ -107,6 +112,10 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
   
   total_start_time <- Sys.time()
   time_per_sim <- numeric(n_sim)
+  
+  # storage for per-day elapsed time since total_start_time
+  day_elapsed_sec <- matrix(NA_real_, nrow = n_sim, ncol = n_days)
+  day_elapsed_hr  <- matrix(NA_real_, nrow = n_sim, ncol = n_days)
   
   mosquito_MOI_df <- matrix(NA, nrow = n_sim, ncol = 30 * n_days)
   eir_df <- matrix(NA, nrow = n_sim, ncol = sum(n_p))
@@ -155,10 +164,14 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     
     # Set starting infection status for people and mosquitoes
     inf_p <- rbinom(sum(n_p), size = 1, p = 0.3)
-    moi_p <- ifelse(inf_p == 1, rtpois(1, 2, a = 0, b = 16), 0)
+    idx <- which(inf_p == 1)
+    moi_p <- integer(sum(n_p))
+    if (length(idx)) moi_p[idx] <- rtpois(length(idx), 2, a = 0, b = 16)
     
     inf_m <- sapply(age_m, get_infection)
-    moi_m <- ifelse(inf_m == 0, 0, sapply(age_m[inf_m == 1], get_moi))
+    idx <- which(inf_m == 1)
+    moi_m <- integer(sum(n_m))
+    if (length(idx)) moi_m[idx] <- sapply(age_m[idx], get_moi)
     
     # Distribute haplotypes to locations
     haps_per_loc_low <- c(rep(floor(length(which(gt_df$freq_cat == 1)) / length(n_p)), length(n_p) - 1),
@@ -479,6 +492,19 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       
       # Store daily human haplotype ages
       age_human_haps_array[, ((1 + (length(haps) * (r - 1))):(length(haps) * r)), q] <- age_haps_p
+    
+      # progress print + log (place at the END of the day loop)
+      now <- Sys.time()
+      elapsed_sec <- as.numeric(difftime(now, total_start_time, units = "secs"))
+      day_elapsed_sec[q, r] <- elapsed_sec
+      day_elapsed_hr[q, r]  <- elapsed_sec / 3600
+      
+      cat(sprintf(
+        "[Progress] Sim %d/%d — Day %d/%d done | %s since start\n",
+        q, n_sim, r, n_days, .format_dur(elapsed_sec)
+      ))
+      if (interactive()) flush.console()
+
     }  # End of daily loop
     
     eir_df[q, ] <- num_infec_bites
@@ -517,11 +543,31 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
   saveRDS(initial_locs_matrix, file = file.path(folder_path, paste0("initial_locs_", scenario_name)))
   
   # Write timing log to CSV file
-  timing_log <- data.frame(
-    Simulation = 1:n_sim,
-    TimeTaken = time_per_sim
+  timing_log_days <- data.frame(
+    Level          = "day",
+    Simulation     = rep(1:n_sim, each = n_days),
+    Day            = rep(1:n_days, times = n_sim),
+    ElapsedSeconds = as.vector(t(day_elapsed_sec)),
+    ElapsedHours   = as.vector(t(day_elapsed_hr))
   )
-  timing_log <- rbind(timing_log, data.frame(Simulation = "Total", TimeTaken = total_duration))
+  
+  timing_log_sims <- data.frame(
+    Level          = "simulation",
+    Simulation     = 1:n_sim,
+    Day            = NA_integer_,
+    ElapsedSeconds = round(time_per_sim * 3600, 3),
+    ElapsedHours   = round(time_per_sim, 4)
+  )
+  
+  timing_log_total <- data.frame(
+    Level          = "total",
+    Simulation     = "All",
+    Day            = NA_integer_,
+    ElapsedSeconds = round(as.numeric(difftime(total_end_time, total_start_time, units = "secs")), 3),
+    ElapsedHours   = round(total_duration, 4)
+  )
+  
+  timing_log <- rbind(timing_log_days, timing_log_sims, timing_log_total)
   write.csv(timing_log, file = file.path(folder_path, "timing_log.csv"), row.names = FALSE)
   
   # Write global tracking logs to CSV files
@@ -585,5 +631,5 @@ run_biting_sim(pr_symp_infec = 0.05, pr_symp_non_infec = 0.05, pr_clear = 0.85,
                n_m=n_m, proportion_suceptible = 0.2, pr_suceptibility=0.01,
                pr_nonSuceptibility=0.005, n_p= n_p, proportion_mobile = 0.1, 
                pr_move = c(rep(0.03, 2), rep(0.06, 4)), num_loc=num_loc, 
-               n_days = 730, scenario_name = "Tracking_uneven_final", 
-               n_sim=5, prob_matrix=prob_matrix)
+               n_days = 730, scenario_name = "Simulation_Model_Code_Final_bugfix", 
+               n_sim=3, prob_matrix=prob_matrix)
