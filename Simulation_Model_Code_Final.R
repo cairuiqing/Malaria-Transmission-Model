@@ -142,13 +142,24 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     sim_start_time <- Sys.time()  # Start time for current simulation
     
     ## Initialize simulation-specific tracking logs and mosquito infection origin vector
-    movement_log    <- data.frame(PersonID = integer(), Origin = character(), 
-                                  Destination = character(), Day = integer())
-    human_to_mos_log <- data.frame(PersonID = integer(), MosquitoID = integer(),
-                                   Location = character(), HaplotypeID = character(), Day = integer())
-    trans_chain_log <- data.frame(OriginAddress = character(), TargetAddress = character(),
-                                  TargetPersonID = integer(), MosquitoID = integer(),
-                                  HaplotypeID = character(), Day = integer())
+    movement_log <- data.frame(
+      PersonID = integer(), Origin = character(), Destination = character(),
+      Day = integer(), Simulation = integer(), stringsAsFactors = FALSE
+    )
+    
+    human_to_mos_log <- data.frame(
+      PersonID = integer(), MosquitoID = integer(), Location = character(),
+      HaplotypeID = character(), Day = integer(), Simulation = integer(),
+      stringsAsFactors = FALSE
+    )
+    
+    trans_chain_log <- data.frame(
+      OriginAddress = character(), TargetAddress = character(),
+      TargetPersonID = integer(), MosquitoID = integer(),
+      HaplotypeID = character(), Day = integer(), Simulation = integer(),
+      stringsAsFactors = FALSE
+    )
+    
     mosquito_origin <- rep(NA_character_, times = sum(n_m))
     
     # Initialize people's locations
@@ -353,10 +364,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
           # If the individual is infected (here we check via symptom index or old infection flag), record the movement event
           if((r > 1) && (symp_index[i] == 1 || old_pers_infec[i] == 1)) {
             movement_log <- rbind(movement_log, data.frame(
-              PersonID = i,
-              Origin = as.character(current_loc),
-              Destination = as.character(new_loc),
-              Day = r
+              PersonID = i, Origin = as.character(current_loc),
+              Destination = as.character(new_loc), Day = r, Simulation = q,
+              stringsAsFactors = FALSE
             ))
           }
           human_locs[i] <- new_loc
@@ -416,11 +426,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
                 if(any(movement_log$PersonID == i & movement_log$Day == r)) {
                   origin_addr <- movement_log$Origin[movement_log$PersonID == i & movement_log$Day == r][1]
                   human_to_mos_log <- rbind(human_to_mos_log, data.frame(
-                    PersonID = i,
-                    MosquitoID = mos_index[j],
-                    Location = as.character(human_locs[i]),  # New location
-                    HaplotypeID = as.character(transfer_haps[k]),
-                    Day = r
+                    PersonID = i, MosquitoID = mos_index[j], Location = as.character(human_locs[i]),
+                    HaplotypeID = as.character(transfer_haps[k]), Day = r, Simulation = q,
+                    stringsAsFactors = FALSE
                   ))
                   # If the mosquito has not been assigned an origin yet, assign the human's original address as its origin.
                   if(is.na(mosquito_origin[mos_index[j]])) {
@@ -455,10 +463,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
                 trans_chain_log <- rbind(trans_chain_log, data.frame(
                   OriginAddress = as.character(mosquito_origin[mos_index[j]]),
                   TargetAddress = as.character(human_locs[i]),
-                  TargetPersonID = i,
-                  MosquitoID = mos_index[j],
-                  HaplotypeID = as.character(new_haps_m[1]),
-                  Day = r
+                  TargetPersonID = i, MosquitoID = mos_index[j],
+                  HaplotypeID = as.character(new_haps_m[1]), Day = r, Simulation = q,
+                  stringsAsFactors = FALSE
                 ))
               }
             }
@@ -514,9 +521,6 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     print(paste("Time taken for simulation", q, ":", time_per_sim[q], "hours"))
     
     ## Add simulation-specific tracking logs with simulation number, and accumulate to global logs
-    movement_log$Simulation <- q
-    human_to_mos_log$Simulation <- q
-    trans_chain_log$Simulation <- q
     global_movement_log <- rbind(global_movement_log, movement_log)
     global_human_to_mos_log <- rbind(global_human_to_mos_log, human_to_mos_log)
     global_trans_chain_log <- rbind(global_trans_chain_log, trans_chain_log)
@@ -632,4 +636,4 @@ run_biting_sim(pr_symp_infec = 0.05, pr_symp_non_infec = 0.05, pr_clear = 0.85,
                pr_nonSuceptibility=0.005, n_p= n_p, proportion_mobile = 0.1, 
                pr_move = c(rep(0.03, 2), rep(0.06, 4)), num_loc=num_loc, 
                n_days = 730, scenario_name = "Simulation_Model_Code_Final_bugfix", 
-               n_sim=3, prob_matrix=prob_matrix)
+               n_sim=2, prob_matrix=prob_matrix)
