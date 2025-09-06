@@ -266,11 +266,6 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     last_day <- rep(0, sum(n_p))
     length_trip <- rep(0, sum(n_p))
     
-    # For simplicity, assume all mosquitoes are infectious at biting time
-    mosquito_infectious <- rep(TRUE, sum(n_m))
-    # Pre-allocate a vector to store the haplotype carried by each mosquito (initially NA)
-    mosquito_hap_id <- rep(NA_character_, sum(n_m))
-    
     ##############################
     #### Start of Daily Loop #####
     ##############################
@@ -301,7 +296,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       # Clear human parasites on 2nd symptomatic day when treatment onsite
       treated_idx <- which(symp_age == 2)
       if (length(treated_idx) > 0) {
-        infec_p[treated_idx] <-NA     # wipe the haplotype list
+        infec_p[treated_idx] <- rep(list(integer(0)), length(treated_idx))     # wipe the haplotype list
         age_haps_p[treated_idx,] <- 0 # zero out all hap ages
         symp_age[treated_idx] <- 0    # clear symptoms
       }
@@ -312,7 +307,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       symp_index[old_pers_infec == 0] <- rbinom(length(old_pers_infec[old_pers_infec == 0]), 1, pr_symp_non_infec)
       
       new_onset <- which(symp_age == 0 & symp_index == 1 & old_pers_infec == 1)
-      if (length(new_onset)) symp_age[new_onset] <- 1
+      if (length(new_onset) > 0) symp_age[new_onset] <- 1
       
       symptoms[which(symp_age == 1), r, q] <- 1
       
@@ -456,7 +451,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
             new_haps_m <- setdiff(na.omit(transfer_haps_m), infec_p[[i]])
             infec_p[[i]] <- c(infec_p[[i]], new_haps_m)
             age_haps_p[i, new_haps_m] <- 1
-            if(length(new_haps_m) > 0) {
+            if(any(!is.na(transfer_haps_m))) {
               inf_bites[j] <- 1
               # If the mosquito was infected from a mobile individual (mosquito_origin not NA), record the full transmission chain
               if(!is.na(mosquito_origin[mos_index[j]])) {
@@ -488,13 +483,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
         age_m[sample_index] <- 0
         inf_m[sample_index] <- 0
         moi_m[sample_index] <- 0
-        infec_m[sample_index] <- NA
+        infec_m[sample_index] <- rep(list(integer(0)), length(sample_index))
         bit_last_3_days[sample_index] <- 0
-        for(i in 1:sum(n_m)) {
-          if(i %in% sample_index) {
-            age_haps_m[i, ] <- 0
-          }
-        }
+        age_haps_m[sample_index, ] <- 0
       }
       
       # Store daily human haplotype ages
