@@ -8,8 +8,8 @@ sourceCpp("get_biting_status.cpp")
 ######################################################
 ######## Fixed Parameters and Re-used Functions ####
 ######################################################
-n_p <- c(20, 20, 10, 10, 10, 10)
-n_m <- c(3000, 3000, 1500, 1500, 1500, 1500)
+n_p <- c(40, 40, 20, 20, 20, 20)
+n_m <- c(6000, 6000, 3000, 3000, 3000, 3000)
 
 num_loc <- length(n_p)
 
@@ -51,7 +51,7 @@ gt_df <- data.frame(hap = csp_total$haplotype_number,
 
 haps <- unique(csp_total$haplotype_number)
 
-# Function to get infection status for humans based on age
+# Function to get infection status based on mosquito age
 get_infection <- function(x) {
   inf <- ifelse(x < 2, 0,
                 ifelse(x < 3, rbinom(1, size = 1, p = 0.05),
@@ -336,7 +336,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       ################################
       ######## Personnel Movement ####
       ################################
-      # Reset: for individuals whose movement ended in the previous day, return to initial location
+      # for individuals whose movement ended in the previous day, return to initial location
       for(p in 1:sum(n_p)) {
         if(last_day[p] == 1) {
           human_locs[p] <- init_locs_p[p]
@@ -388,13 +388,12 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       bit_last_3_days[bit_last_3_days != 0] <- bit_last_3_days[bit_last_3_days != 0] + 1
       bit_last_3_days[bit_last_3_days > 3] <- 0
       
-      mos_biting_probs <- rep(0, sum(n_m))
-      if(r %in% c(rainy_days, moderate_days)) {
-        mos_biting_probs[bit_last_3_days < 1 & age_m >= 2] <- rbinom(length(mos_biting_probs[bit_last_3_days < 1 & age_m >= 2]), 1, pr_on_feed_rainy)
-      } else {
-        mos_biting_probs[bit_last_3_days < 1 & age_m >= 2] <- rbinom(length(mos_biting_probs[bit_last_3_days < 1 & age_m >= 2]), 1, pr_on_feed_dry)
-      }
-      mos_biting_probs[bit_last_3_days >= 1 | age_m < 2] <- rbinom(length(mos_biting_probs[bit_last_3_days >= 1 | age_m < 2]), 1, pr_off_feed)
+      mos_biting_probs <- rep(pr_off_feed, length(age_m))
+      mos_biting_probs[age_m < 2] <- 0 # No infection from Mosquito due to age < 2 days see `get_infection` function
+      ready <- (bit_last_3_days < 1) & (age_m >= 2)
+      if (r %in% rainy_days)     mos_biting_probs[ready] <- pr_on_feed_rainy
+      if (r %in% moderate_days)  mos_biting_probs[ready] <- pr_on_feed_moderate
+      if (r %in% dry_days)       mos_biting_probs[ready] <- pr_on_feed_dry
       
       bites <- rbinom(sum(n_m), 1, mos_biting_probs)
       which_mos_bite <- (bites == 1)
