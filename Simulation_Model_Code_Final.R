@@ -255,9 +255,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     
     prob_bit_last_3_days <- ifelse(age_m < 2, 0,
                                    ifelse(min_age_haps == 0 | (age_m - min_age_haps) >= 3, pr_on_feed_dry, pr_off_feed))
-    bit_last_3_days <- ifelse(prob_bit_last_3_days == pr_on_feed_dry, 
-                              rbinom(length(prob_bit_last_3_days), 1, pr_on_feed_dry),
-                              rbinom(length(prob_bit_last_3_days), 1, pr_off_feed))
+    bit_last_3_days <- rbinom(length(prob_bit_last_3_days), 1, prob_bit_last_3_days)
     
     suceptible_people <- sample(1:sum(n_p), size = proportion_suceptible * sum(n_p), replace = F)
     suceptible_prob <- ifelse(1:sum(n_p) %in% suceptible_people, pr_suceptibility, pr_nonSuceptibility)
@@ -389,13 +387,13 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       bit_last_3_days[bit_last_3_days > 3] <- 0
       
       mos_biting_probs <- rep(pr_off_feed, length(age_m))
-      mos_biting_probs[age_m < 2] <- 0 # No infection from Mosquito due to age < 2 days see `get_infection` function
+      mos_biting_probs[age_m < 2] <- 0 # No bite from Mosquito due to age < 2 days, see `get_infection` function
       ready <- (bit_last_3_days < 1) & (age_m >= 2)
       if (r %in% rainy_days)     mos_biting_probs[ready] <- pr_on_feed_rainy
       if (r %in% moderate_days)  mos_biting_probs[ready] <- pr_on_feed_moderate
       if (r %in% dry_days)       mos_biting_probs[ready] <- pr_on_feed_dry
       
-      bites <- rbinom(sum(n_m), 1, mos_biting_probs)
+      bites <- rbinom(length(mos_biting_probs), 1, mos_biting_probs)
       which_mos_bite <- (bites == 1)
       
       for(i in which(which_mos_bite)) {
