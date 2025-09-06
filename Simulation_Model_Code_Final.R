@@ -305,13 +305,16 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       if (length(treated_idx) > 0) {
         infec_p[treated_idx] <-NA     # wipe the haplotype list
         age_haps_p[treated_idx,] <- 0 # zero out all hap ages
+        symp_age[treated_idx] <- 0    # clear symptoms
       }
       
       old_pers_infec <- get_old_p_infec2(age_haps_p)
       
       symp_index[old_pers_infec == 1] <- rbinom(length(old_pers_infec[old_pers_infec == 1]), 1, pr_symp_infec)
       symp_index[old_pers_infec == 0] <- rbinom(length(old_pers_infec[old_pers_infec == 0]), 1, pr_symp_non_infec)
-      symp_age[which(symp_index == 1 & old_pers_infec == 1)] <- 1
+      
+      new_onset <- which(symp_age == 0 & symp_index == 1 & old_pers_infec == 1)
+      if (length(new_onset)) symp_age[new_onset] <- 1
       
       symptoms[which(symp_age == 1), r, q] <- 1
       
