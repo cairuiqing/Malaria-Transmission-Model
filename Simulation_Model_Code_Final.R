@@ -284,7 +284,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       age_m[which(death_m == 1)] <- 0
       inf_m[which(death_m == 1)] <- 0
       moi_m[which(death_m == 1)] <- 0
-      infec_m[which(death_m == 1)] <- NA
+      infec_m[which(death_m == 1)] <- rep(list(integer(0)), sum(death_m == 1))
       age_haps_m[death_m == 1, ] <- 0
       bit_last_3_days[death_m == 1] <- 0
       
@@ -319,7 +319,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
                             ifelse(age_haps_p[i, j] >= 65, rbinom(1, 1, 0.85),
                                    ifelse(age_haps_p[i, j] >= 30, rbinom(1, 1, pr_clear), 0)))
             if(clear == 1) {
-              infec_p[[i]][which(infec_p[[i]] == j)] <- NA
+              infec_p[[i]] <- infec_p[[i]][!is.na(infec_p[[i]]) & infec_p[[i]] != j]
               age_haps_p[i, j] <- 0
             }
           }
@@ -349,7 +349,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       days_away[which(days_away >= 1)] <- days_away[which(days_away >= 1)] + 1
       days_away[which(humans_moving == 1)] <- 1
       last_day <- rep(0, sum(n_p))
-      last_day[which(length_trip - days_away == 1 | length_trip == 1)] <- 1
+      last_day[which(days_away > 0 & days_away == length_trip)] <- 1
       
       # Process personnel movement: if an individual moves, update their location and record the event if they are infected.
       for(i in 1:sum(n_p)) {
