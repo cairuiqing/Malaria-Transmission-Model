@@ -283,6 +283,10 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     last_day <- rep(0, sum(n_p))
     length_trip <- rep(0, sum(n_p))
     
+    # New: Track days since returning home (set a high number for "never or long ago")
+    days_since_return <- rep(1000, sum(n_p))
+    
+    
     ##############################
     #### Start of Daily Loop #####
     ##############################
@@ -295,6 +299,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       # Increment human haplotype ages
       age_haps_p <- age_haps_p + 1
       age_haps_p[age_haps_p == 1] <- 0
+      
+      # New: Increment days since return for everyone
+      days_since_return <- days_since_return + 1
       
       # Process mosquito deaths and update corresponding states
       death_m <- get_mos_death3(age_m)
@@ -365,6 +372,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
           human_locs[p] <- init_locs_p[p]
           days_away[p] <- 0
           length_trip[p] <- 0
+          
+          # NEW: Reset days since return to 0
+          days_since_return[p] <- 0
         }
       }
       
@@ -457,8 +467,25 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
               if(transfer == 1) {
                 transfer_haps[k] <- old_haps_p_i[k]
                 
+                # New: Update to filter the recent travelers within 14 days and label for further analysis
                 is_traveler <- (human_locs[i] != init_locs_p[i])
+                is_recent_returnee <- (human_locs[i] == init_locs_p[i] && days_since_return[i] <= 14)
+                
+                source_status_label <- "Local"
                 parasite_origin_addr <- as.character(init_locs_p[i])
+                
+                if (is_traveler) {
+                  parasite_origin_addr <- "Traveler" # Generic tag
+                  if (days_away[i] <= 14) {
+                    source_status_label <- "Traveler_Recent" # Count as Importation (Source)
+                  } else {
+                    source_status_label <- "Traveler_LongTerm" # Need to discuss
+                  }
+                } else if (is_recent_returnee) {
+                  parasite_origin_addr <- "Imported_Returnee"
+                  source_status_label <- "Returnee_Imported"
+                }
+                
                 mosquito_origin[mos_index[j]] <- parasite_origin_addr
                 
                 human_to_mos_log <- rbind(human_to_mos_log, data.frame(
@@ -468,7 +495,7 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
                   HaplotypeID = as.character(transfer_haps[k]), 
                   Day = r, 
                   Simulation = q,
-                  SourceStatus = ifelse(is_traveler, "Traveler", "Local"), 
+                  SourceStatus = source_status_label, 
                   stringsAsFactors = FALSE
                 ))
               }
@@ -502,7 +529,8 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
                   origin_loc <- as.character(mosquito_origin[mos_index[j]])
                   target_loc <- as.character(human_locs[i])
                   
-                  is_imported_case <- (origin_loc != target_loc)
+                  # Updated: Also include infected come home traveler as importation
+                  is_imported_case <- (origin_loc != target_loc) || (origin_loc == "Imported_Returnee")
                   
                   trans_chain_log <- rbind(trans_chain_log, data.frame(
                     OriginAddress = origin_loc,
