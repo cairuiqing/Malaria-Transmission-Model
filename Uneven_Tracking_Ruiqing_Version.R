@@ -177,6 +177,8 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     )
     
     mosquito_origin <- rep(NA_character_, times = sum(n_m))
+    # New: Vector to store the information about the source type of the mosquito infection for `global_trans_chain` record
+    mosquito_source_type <- rep(NA_character_, times = sum(n_m))
     
     # Initialize people's locations
     init_locs_p <- rep(1:num_loc, n_p)
@@ -286,6 +288,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     # New: Track days since returning home (set a high number for "never or long ago")
     days_since_return <- rep(1000, sum(n_p))
     
+    # New: Vector to remember the location of the last trip
+    last_trip_loc <- rep(NA_character_, sum(n_p))
+    
     
     ##############################
     #### Start of Daily Loop #####
@@ -306,6 +311,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       # Process mosquito deaths and update corresponding states
       death_m <- get_mos_death3(age_m)
       mosquito_origin[which(death_m == 1)] <- NA_character_
+      # Clear source type info upon death
+      mosquito_source_type[which(death_m == 1)] <- NA_character_
+      
       age_m[which(death_m == 1)] <- 0
       inf_m[which(death_m == 1)] <- 0
       moi_m[which(death_m == 1)] <- 0
@@ -367,6 +375,9 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
               Simulation = q,
               stringsAsFactors = FALSE
             ))
+            
+            # New: Store the location they are returning From
+            last_trip_loc[p] <- as.character(human_locs[p])
           }
           
           human_locs[p] <- init_locs_p[p]
@@ -475,18 +486,24 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
                 parasite_origin_addr <- as.character(init_locs_p[i])
                 
                 if (is_traveler) {
-                  parasite_origin_addr <- "Traveler" # Generic tag
                   if (days_away[i] <= 14) {
                     source_status_label <- "Traveler_Recent" # Count as Importation (Source)
                   } else {
                     source_status_label <- "Traveler_LongTerm" # Need to discuss
                   }
                 } else if (is_recent_returnee) {
-                  parasite_origin_addr <- "Imported_Returnee"
+                  # New: Use last_trip_loc for Returnee address
+                  if (!is.na(last_trip_loc[i])) {
+                    parasite_origin_addr <- last_trip_loc[i]
+                  } else {
+                    parasite_origin_addr <- "Imported_Returnee_Unknown" # Fallback
+                  }
                   source_status_label <- "Returnee_Imported"
                 }
                 
                 mosquito_origin[mos_index[j]] <- parasite_origin_addr
+                # New: Tag mosquito with the address AND the status type separately
+                mosquito_source_type[mos_index[j]] <- source_status_label
                 
                 human_to_mos_log <- rbind(human_to_mos_log, data.frame(
                   PersonID = i, 
@@ -528,19 +545,24 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
                 if(length(new_haps_m) > 0) {
                   origin_loc <- as.character(mosquito_origin[mos_index[j]])
                   target_loc <- as.character(human_locs[i])
+                  # New: Get the source type of the mosquito infection
+                  source_type <- as.character(mosquito_source_type[mos_index[j]])
                   
-                  # Updated: Also include infected come home traveler as importation
-                  is_imported_case <- (origin_loc != target_loc) || (origin_loc == "Imported_Returnee")
+                  # [REVISION] Imported case now defined by location mismatch OR source type flag
+                  is_imported_case <- (origin_loc != target_loc) || 
+                    (source_type == "Returnee_Imported") ||
+                    (grepl("Traveler", source_type))
+                  
                   
                   trans_chain_log <- rbind(trans_chain_log, data.frame(
-                    OriginAddress = origin_loc,
+                    OriginAddress = origin_loc, # Now keeps the numeric ID
                     TargetAddress = target_loc,
                     TargetPersonID = i, 
                     MosquitoID = mos_index[j],
                     HaplotypeID = as.character(new_haps_m[1]), 
                     Day = r, 
                     Simulation = q,
-                    # This allows you to calculate "Rate of Importation"
+                    SourceType = source_type, # [REVISION] Log the type here
                     TransmissionType = ifelse(is_imported_case, "Imported", "Local"),
                     stringsAsFactors = FALSE
                   ))
@@ -563,6 +585,8 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
         }
         mosquito_MOI_df[q, (1 + (30 * (r - 1))):(30 * r)] <- mos_moi
         mosquito_origin[sample_index] <- NA_character_
+        # New: Clear source type memory on sampling
+        mosquito_source_type[sample_index] <- NA_character_
         age_m[sample_index] <- 0
         inf_m[sample_index] <- 0
         moi_m[sample_index] <- 0
@@ -664,7 +688,10 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       origin <- as.character(global_trans_chain_log$OriginAddress[i])
       destination <- as.character(global_trans_chain_log$TargetAddress[i])
       if(origin != destination) {  # Ignore self-transmission
-        od_matrix[origin, destination] <- od_matrix[origin, destination] + 1
+        # New: This filters out "Traveler", "Imported_Returnee", etc. from the matrix
+        if(origin %in% rownames(od_matrix) && destination %in% colnames(od_matrix)){
+          od_matrix[origin, destination] <- od_matrix[origin, destination] + 1
+        }
       }
     }
   }
