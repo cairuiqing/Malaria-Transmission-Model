@@ -8,8 +8,8 @@ sourceCpp("get_biting_status.cpp")
 ######################################################
 ######## Fixed Parameters and Re-used Functions ####
 ######################################################
-n_p <- c(50, 25, 25)
-n_m <- c(7500, 3750, 3750)
+n_p <- c(20, 10, 10)
+n_m <- c(3000, 1500, 1500)
 
 num_loc <- length(n_p)
 
@@ -142,13 +142,41 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
   initial_locs_matrix <- matrix(NA, nrow = sum(n_p), n_sim)
   
   ## Initialize global tracking logs (accumulated across simulations)
-  global_movement_log    <- data.frame(PersonID = integer(), Origin = character(), 
-                                       Destination = character(), Day = integer(), Simulation = integer())
-  global_human_to_mos_log <- data.frame(PersonID = integer(), MosquitoID = integer(),
-                                        Location = character(), HaplotypeID = character(), Day = integer(), Simulation = integer())
-  global_trans_chain_log <- data.frame(OriginAddress = character(), TargetAddress = character(),
-                                       TargetPersonID = integer(), MosquitoID = integer(),
-                                       HaplotypeID = character(), Day = integer(), Simulation = integer())
+  # New: movement_log structure now includes TripID and LegID
+  global_movement_log <- data.frame(
+    PersonID    = integer(),
+    Origin      = character(),
+    Destination = character(),
+    Day         = integer(),
+    Simulation  = integer(),
+    TripID      = integer(),   # trip episode number (per person)
+    LegID       = integer(),   # 1,2,... within trip; 0 = return home
+    stringsAsFactors = FALSE
+  )
+  
+  global_human_to_mos_log <- data.frame(
+    PersonID    = integer(),
+    MosquitoID  = integer(),
+    Location    = character(),
+    HaplotypeID = character(),
+    Day         = integer(),
+    Simulation  = integer(),
+    SourceStatus = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  global_trans_chain_log <- data.frame(
+    OriginAddress    = character(),
+    TargetAddress    = character(),
+    TargetPersonID   = integer(),
+    MosquitoID       = integer(),
+    HaplotypeID      = character(),
+    Day              = integer(),
+    Simulation       = integer(),
+    SourceType       = character(),
+    TransmissionType = character(),
+    stringsAsFactors = FALSE
+  )
   
   # Pre-read haplotype frequency data for mosquito infection
   hap_freq <- gt_df$freq
@@ -159,26 +187,48 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     
     ## Initialize simulation-specific tracking logs and mosquito infection origin vector
     movement_log <- data.frame(
-      PersonID = integer(), Origin = character(), Destination = character(),
-      Day = integer(), Simulation = integer(), stringsAsFactors = FALSE
+      PersonID    = integer(),
+      Origin      = character(),
+      Destination = character(),
+      Day         = integer(),
+      Simulation  = integer(),
+      TripID      = integer(),
+      LegID       = integer(),
+      stringsAsFactors = FALSE
     )
     
     human_to_mos_log <- data.frame(
-      PersonID = integer(), MosquitoID = integer(), Location = character(),
-      HaplotypeID = character(), Day = integer(), Simulation = integer(),
+      PersonID    = integer(),
+      MosquitoID  = integer(),
+      Location    = character(),
+      HaplotypeID = character(),
+      Day         = integer(),
+      Simulation  = integer(),
+      SourceStatus = character(),
       stringsAsFactors = FALSE
     )
     
     trans_chain_log <- data.frame(
-      OriginAddress = character(), TargetAddress = character(),
-      TargetPersonID = integer(), MosquitoID = integer(),
-      HaplotypeID = character(), Day = integer(), Simulation = integer(),
+      OriginAddress    = character(),
+      TargetAddress    = character(),
+      TargetPersonID   = integer(),
+      MosquitoID       = integer(),
+      HaplotypeID      = character(),
+      Day              = integer(),
+      Simulation       = integer(),
+      SourceType       = character(),
+      TransmissionType = character(),
       stringsAsFactors = FALSE
     )
     
     mosquito_origin <- rep(NA_character_, times = sum(n_m))
-    # New: Vector to store the information about the source type of the mosquito infection for `global_trans_chain` record
     mosquito_source_type <- rep(NA_character_, times = sum(n_m))
+    
+    # New: imported_hap_flag[i, h] = 1 if person i currently carries hap h that was acquired
+    # from a different home location; 0 otherwise.
+    imported_hap_flag <- matrix(0L, nrow = sum(n_p), ncol = length(haps))
+    # has_imported_hap[i] = 1 if person i currently has at least one imported hap.
+    has_imported_hap  <- rep(0L, sum(n_p))
     
     # Initialize people's locations
     init_locs_p <- rep(1:num_loc, n_p)
@@ -285,12 +335,13 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
     last_day <- rep(0, sum(n_p))
     length_trip <- rep(0, sum(n_p))
     
-    # New: Track days since returning home (set a high number for "never or long ago")
     days_since_return <- rep(1000, sum(n_p))
     
-    # New: Vector to remember the location of the last trip
     last_trip_loc <- rep(NA_character_, sum(n_p))
     
+    # New: add trip bookkeeping per person
+    trip_id  <- rep(0L, sum(n_p))  # counts how many trips this person has started
+    trip_leg <- rep(0L, sum(n_p))  # counts legs within the current trip (1,2,3,..., 0 when at home)
     
     ##############################
     #### Start of Daily Loop #####
@@ -305,13 +356,11 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       age_haps_p <- age_haps_p + 1
       age_haps_p[age_haps_p == 1] <- 0
       
-      # New: Increment days since return for everyone
       days_since_return <- days_since_return + 1
       
       # Process mosquito deaths and update corresponding states
       death_m <- get_mos_death3(age_m)
       mosquito_origin[which(death_m == 1)] <- NA_character_
-      # Clear source type info upon death
       mosquito_source_type[which(death_m == 1)] <- NA_character_
       
       age_m[which(death_m == 1)] <- 0
@@ -331,6 +380,11 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       if (length(treated_idx) > 0) {
         infec_p[treated_idx] <- rep(list(integer(0)), length(treated_idx))     # wipe the haplotype list
         age_haps_p[treated_idx,] <- 0 # zero out all hap ages
+        
+        # New: When treatment clears infections, also clear imported flags
+        imported_hap_flag[treated_idx, ] <- 0L
+        has_imported_hap[treated_idx] <- 0L
+        
         symp_age[treated_idx] <- 0    # clear symptoms
       }
       
@@ -344,9 +398,10 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       
       symptoms[which(symp_age == 1), r, q] <- 1
       
+      # New: update clearing of human parasites 
       # Clear human parasites by age of parasites
       for(i in 1:sum(n_p)) {
-        if(sum(!is.na(infec_p[[i]])) > 0) {           
+        if(length(na.omit(infec_p[[i]])) > 0) {           
           for(j in na.omit(infec_p[[i]])) {
             clear <- ifelse(age_haps_p[i, j] >= 90, rbinom(1, 1, 0.95),
                             ifelse(age_haps_p[i, j] >= 65, rbinom(1, 1, 0.85),
@@ -354,72 +409,207 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
             if(clear == 1) {
               infec_p[[i]] <- infec_p[[i]][!is.na(infec_p[[i]]) & infec_p[[i]] != j]
               age_haps_p[i, j] <- 0
+              imported_hap_flag[i, j] <- 0L   # clear imported flag when hap clears
             }
           }
         }
+        # New: update whether person i still has any imported hap
+        has_imported_hap[i] <- as.integer(any(imported_hap_flag[i, ] == 1L))
       }
       
       ################################
       ######## Personnel Movement ####
       ################################
-      # for individuals whose movement ended in the previous day, return to initial location
+      # New: To revise the movement logic to better track trips for all the travelers instead of only infected person ----------
+      # 1) Process returns from trips whose last_day was flagged yesterday
       for(p in 1:sum(n_p)) {
         if(last_day[p] == 1) {
           # Only log if they are actually somewhere else (just to be safe)
           if(human_locs[p] != init_locs_p[p]) {
-            movement_log <- rbind(movement_log, data.frame(
-              PersonID = p, 
-              Origin = as.character(human_locs[p]),
-              Destination = as.character(init_locs_p[p]), 
-              Day = r, 
-              Simulation = q,
-              stringsAsFactors = FALSE
-            ))
+            movement_log <- rbind(
+              movement_log,
+              data.frame(
+                PersonID = p,
+                Origin = as.character(human_locs[p]),
+                Destination = as.character(init_locs_p[p]),
+                Day = r,
+                Simulation = q,
+                TripID = trip_id[p],
+                LegID = 0L,
+                stringsAsFactors = FALSE
+              )
+            )
             
-            # New: Store the location they are returning From
             last_trip_loc[p] <- as.character(human_locs[p])
           }
           
-          human_locs[p] <- init_locs_p[p]
-          days_away[p] <- 0
-          length_trip[p] <- 0
-          
-          # NEW: Reset days since return to 0
+          # New: Update state to "back home"
+          human_locs[p]      <- init_locs_p[p]
+          days_away[p]       <- 0
+          length_trip[p]     <- 0
           days_since_return[p] <- 0
+          trip_leg[p]        <- 0L    # reset leg counter when home
         }
       }
       
-      humans_moving <- rep(0, sum(n_p))
-      for(i in 1:length(n_p)) {
-        idx <- which(human_locs == i & mobile_humans == 1 & (length_trip - days_away == 0))
-        if(length(idx) > 0)
-          humans_moving[idx] <- rbinom(length(idx), 1, pr_move[i])
+      # 2) People currently away from home (days_away > 0) can move between non-home locations
+      #    but cannot go back to their home except via the explicit return movement above.
+      away_idx <- which(days_away > 0 & length_trip > 0)
+      if (length(away_idx) > 0) {
+        for(i in away_idx) {
+          current_loc <- human_locs[i]
+          home_loc    <- init_locs_p[i]
+          
+          # Skip if somehow already at home (shouldn't happen due to return logic)
+          if (current_loc == home_loc) next
+          
+          # Decide whether this away person moves today
+          move_today <- rbinom(1, 1, pr_move[current_loc])
+          if (move_today == 1) {
+            # Candidate destinations: cannot stay in place, cannot go home
+            cand_locs <- setdiff(1:num_loc, c(current_loc, home_loc))
+            if (length(cand_locs) > 0) {
+              dest_probs <- prob_matrix[current_loc, cand_locs]
+              # Handle any NA from prob_matrix (e.g., if not fully specified)
+              if (all(is.na(dest_probs))) {
+                # Fall back to uniform if row is all NA
+                dest_probs <- rep(1, length(cand_locs))
+              }
+              new_loc <- resample(cand_locs, size = 1, replace = FALSE, prob = dest_probs)
+              
+              # Update leg counter within the same trip
+              trip_leg[i] <- trip_leg[i] + 1L
+              
+              # Log this movement
+              movement_log <- rbind(
+                movement_log,
+                data.frame(
+                  PersonID    = i,
+                  Origin      = as.character(current_loc),
+                  Destination = as.character(new_loc),
+                  Day         = r,
+                  Simulation  = q,
+                  TripID      = trip_id[i],
+                  LegID       = trip_leg[i],
+                  stringsAsFactors = FALSE
+                )
+              )
+              
+              # Update location
+              human_locs[i] <- new_loc
+            }
+          }
+        }
       }
       
-      length_trip[which(humans_moving == 1)] <- ceiling(rexp(length(which(humans_moving == 1)), 0.125))
-      days_away[which(days_away >= 1)] <- days_away[which(days_away >= 1)] + 1
-      days_away[which(humans_moving == 1)] <- 1
+      # 3) People at home and not currently on a trip can start a new trip
+      new_trip_today <- rep(0L, sum(n_p))
+      for(loc in 1:num_loc) {
+        home_candidates <- which(
+          human_locs == loc &                # physically in this location
+            init_locs_p == loc &             # this location is their true home
+            mobile_humans == 1 &             # mobile individuals only
+            days_away == 0 &                 # not currently away
+            length_trip == 0                 # no active trip planned
+        )
+        
+        if (length(home_candidates) > 0) {
+          # Decide who starts a trip today from this location
+          move_flags <- rbinom(length(home_candidates), 1, pr_move[loc])
+          starters   <- home_candidates[move_flags == 1]
+          
+          if (length(starters) > 0) {
+            for(i in starters) {
+              home_loc <- init_locs_p[i]
+              
+              # Destination cannot be home; use prob_matrix row for routing
+              cand_locs <- setdiff(1:num_loc, home_loc)
+              dest_probs <- prob_matrix[home_loc, cand_locs]
+              if (all(is.na(dest_probs))) {
+                dest_probs <- rep(1, length(cand_locs))
+              }
+              new_loc <- resample(cand_locs, size = 1, replace = FALSE, prob = dest_probs)
+              
+              # New trip: increment trip_id and set first leg
+              trip_id[i]  <- trip_id[i] + 1L
+              trip_leg[i] <- 1L
+              
+              # Set travel duration for this trip
+              length_trip[i] <- ceiling(rexp(1, 0.125))
+              days_away[i]   <- 1
+              
+              # Log departure from home with leg 1
+              movement_log <- rbind(
+                movement_log,
+                data.frame(
+                  PersonID    = i,
+                  Origin      = as.character(home_loc),
+                  Destination = as.character(new_loc),
+                  Day         = r,
+                  Simulation  = q,
+                  TripID      = trip_id[i],
+                  LegID       = trip_leg[i],
+                  stringsAsFactors = FALSE
+                )
+              )
+              
+              # Update location
+              human_locs[i] <- new_loc
+              new_trip_today[i] <- 1L
+            }
+          }
+        }
+      }
+      
+      # 4) Update days_away and recompute last_day based on updated trips
+      if (any(days_away >= 1)) {
+        days_away[days_away >= 1] <- days_away[days_away >= 1] + 1
+      }
+      # Ensure new trips for today are set to exactly 1 day away
+      if (any(new_trip_today == 1L)) {
+        days_away[new_trip_today == 1L] <- 1
+      }
+      
+      # Recompute last_day for use tomorrow (when last_day==1, they will return home)
       last_day <- rep(0, sum(n_p))
       last_day[which(days_away > 0 & days_away == length_trip)] <- 1
       
-      # Process personnel movement: if an individual moves, update their location and record the event if they are infected.
-      for(i in 1:sum(n_p)) {
-        if(humans_moving[i] == 1) {
-          current_loc <- human_locs[i]
-          # Randomly select a new location excluding current one
-          new_loc <- resample((1:num_loc)[-current_loc], size = 1, prob = prob_matrix[current_loc, -current_loc])
-          # If the individual is infected (here we check via symptom index or old infection flag), record the movement event
-          if((r > 1) && (symp_index[i] == 1 || old_pers_infec[i] == 1)) {
-            movement_log <- rbind(movement_log, data.frame(
-              PersonID = i, Origin = as.character(current_loc),
-              Destination = as.character(new_loc), Day = r, Simulation = q,
-              stringsAsFactors = FALSE
-            ))
-          }
-          human_locs[i] <- new_loc
-        }
-      }
+      # Store current locations for this day
       location[, r, q] <- human_locs
+      
+      # End New edition --------------------------------------------------------- 
+      
+      # humans_moving <- rep(0, sum(n_p))
+      # for(i in 1:length(n_p)) {
+      #   idx <- which(human_locs == i & mobile_humans == 1 & (length_trip - days_away == 0))
+      #   if(length(idx) > 0)
+      #     humans_moving[idx] <- rbinom(length(idx), 1, pr_move[i])
+      # }
+      # 
+      # length_trip[which(humans_moving == 1)] <- ceiling(rexp(length(which(humans_moving == 1)), 0.125))
+      # days_away[which(days_away >= 1)] <- days_away[which(days_away >= 1)] + 1
+      # days_away[which(humans_moving == 1)] <- 1
+      # last_day <- rep(0, sum(n_p))
+      # last_day[which(days_away > 0 & days_away == length_trip)] <- 1
+      # 
+      # # Process personnel movement: if an individual moves, update their location and record the event if they are infected.
+      # for(i in 1:sum(n_p)) {
+      #   if(humans_moving[i] == 1) {
+      #     current_loc <- human_locs[i]
+      #     # Randomly select a new location excluding current one
+      #     new_loc <- resample((1:num_loc)[-current_loc], size = 1, prob = prob_matrix[current_loc, -current_loc])
+      #     # If the individual is infected (here we check via symptom index or old infection flag), record the movement event
+      #     if((r > 1) && (symp_index[i] == 1 || old_pers_infec[i] == 1)) {
+      #       movement_log <- rbind(movement_log, data.frame(
+      #         PersonID = i, Origin = as.character(current_loc),
+      #         Destination = as.character(new_loc), Day = r, Simulation = q,
+      #         stringsAsFactors = FALSE
+      #       ))
+      #     }
+      #     human_locs[i] <- new_loc
+      #   }
+      # }
+      # location[, r, q] <- human_locs
       
       ################################
       #### Mosquito Biting & Transmission
@@ -472,37 +662,57 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
           
           if(length(old_haps_p_i) > 0 && symp_age[i] < 1) {
             transfer_haps <- rep(NA, length(old_haps_p_i))
+            
+            # New: Pre-compute travel / return / imported status for this person on this day
+            is_traveler <- (human_locs[i] != init_locs_p[i])
+            is_recent_returnee <- (human_locs[i] == init_locs_p[i] && days_since_return[i] <= 14)
+            has_imported <- (has_imported_hap[i] == 1L)
+            
             for(k in 1:length(old_haps_p_i)) {
               prob <- pr_hum_to_mos
               transfer <- rbinom(1, 1, prob)
               if(transfer == 1) {
                 transfer_haps[k] <- old_haps_p_i[k]
                 
-                # New: Update to filter the recent travelers within 14 days and label for further analysis
-                is_traveler <- (human_locs[i] != init_locs_p[i])
-                is_recent_returnee <- (human_locs[i] == init_locs_p[i] && days_since_return[i] <= 14)
-                
                 source_status_label <- "Local"
                 parasite_origin_addr <- as.character(init_locs_p[i])
                 
+                # New: update the detail categories for travelers / returnees
                 if (is_traveler) {
+                  # away from home
                   if (days_away[i] <= 14) {
+                    # Importation days while away (up to 14 days)
                     source_status_label <- "Traveler_Recent" # Count as Importation (Source)
                   } else {
+                    # After 14 days away, treat as long-term traveler (no longer counted as importation)
                     source_status_label <- "Traveler_LongTerm" # Need to discuss
                   }
                 } else if (is_recent_returnee) {
-                  # New: Use last_trip_loc for Returnee address
+                  # At home and recently returned (<= 14 days since return)
+                  if (has_imported) {
+                    # Has at least one imported hap
+                    source_status_label <- "Returnee_Imported"
+                    if (!is.na(last_trip_loc[i])) {
+                      parasite_origin_addr <- last_trip_loc[i]
+                    } else {
+                      parasite_origin_addr <- as.character(init_locs_p[i])
+                    }
+                  } else {
+                    # No imported hap, but still within 14-day post-travel window
+                    source_status_label <- "Returnee_Recent"
+                    parasite_origin_addr <- as.character(init_locs_p[i])
+                  }
+                } else if (has_imported && human_locs[i] == init_locs_p[i] && days_since_return[i] < 1000) {
+                  # Returned long ago but still carries imported hap – traveler with past trip
+                  source_status_label <- "Returnee_Imported"
                   if (!is.na(last_trip_loc[i])) {
                     parasite_origin_addr <- last_trip_loc[i]
                   } else {
-                    parasite_origin_addr <- "Imported_Returnee_Unknown" # Fallback
+                    parasite_origin_addr <- as.character(init_locs_p[i])
                   }
-                  source_status_label <- "Returnee_Imported"
                 }
                 
                 mosquito_origin[mos_index[j]] <- parasite_origin_addr
-                # New: Tag mosquito with the address AND the status type separately
                 mosquito_source_type[mos_index[j]] <- source_status_label
                 
                 human_to_mos_log <- rbind(human_to_mos_log, data.frame(
@@ -521,6 +731,8 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
             infec_m[[mos_index[j]]] <- c(infec_m[[mos_index[j]]], new_haps)
             age_haps_m[mos_index[j], new_haps] <- 1
           }
+          
+          
           # Mosquito-to-human transmission: if the mosquito has old haplotypes (>=9 days) and the human is susceptible,
           # then transfer haplotype(s) from mosquito to human.
           old_haps_m_j <- which(age_haps_m[mos_index[j], ] >= 9)
@@ -538,6 +750,17 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
             infec_p[[i]] <- c(infec_p[[i]], new_haps_m)
             age_haps_p[i, new_haps_m] <- 1
             
+            # New: If this infections originates from a different home location than the person's,
+            # mark hap(s) as imported for this person.
+            if(length(new_haps_m) > 0 && !is.na(mosquito_origin[mos_index[j]])) {
+              origin_loc_for_person <- as.character(mosquito_origin[mos_index[j]])
+              home_loc_for_person   <- as.character(init_locs_p[i])
+              if(origin_loc_for_person != home_loc_for_person) {
+                imported_hap_flag[i, new_haps_m] <- 1L
+              }
+              has_imported_hap[i] <- as.integer(any(imported_hap_flag[i, ] == 1L))
+            }
+            
             if(any(!is.na(transfer_haps_m))) {
               inf_bites[j] <- 1
               # If the mosquito was infected from a mobile individual (mosquito_origin not NA), record the full transmission chain
@@ -545,24 +768,23 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
                 if(length(new_haps_m) > 0) {
                   origin_loc <- as.character(mosquito_origin[mos_index[j]])
                   target_loc <- as.character(human_locs[i])
-                  # New: Get the source type of the mosquito infection
                   source_type <- as.character(mosquito_source_type[mos_index[j]])
                   
-                  # [REVISION] Imported case now defined by location mismatch OR source type flag
-                  is_imported_case <- (origin_loc != target_loc) || 
-                    (source_type == "Returnee_Imported") ||
-                    (grepl("Traveler", source_type))
+                  is_imported_case <- FALSE
+                  if(source_type %in% c("Traveler_Recent", "Returnee_Imported", "Returnee_Recent")) {
+                    is_imported_case <- TRUE
+                  }
                   
                   
                   trans_chain_log <- rbind(trans_chain_log, data.frame(
-                    OriginAddress = origin_loc, # Now keeps the numeric ID
+                    OriginAddress = origin_loc,
                     TargetAddress = target_loc,
                     TargetPersonID = i, 
                     MosquitoID = mos_index[j],
                     HaplotypeID = as.character(new_haps_m[1]), 
                     Day = r, 
                     Simulation = q,
-                    SourceType = source_type, # [REVISION] Log the type here
+                    SourceType = source_type,
                     TransmissionType = ifelse(is_imported_case, "Imported", "Local"),
                     stringsAsFactors = FALSE
                   ))
@@ -585,7 +807,6 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
         }
         mosquito_MOI_df[q, (1 + (30 * (r - 1))):(30 * r)] <- mos_moi
         mosquito_origin[sample_index] <- NA_character_
-        # New: Clear source type memory on sampling
         mosquito_source_type[sample_index] <- NA_character_
         age_m[sample_index] <- 0
         inf_m[sample_index] <- 0
@@ -688,7 +909,6 @@ run_biting_sim <- function(pr_symp_infec, pr_symp_non_infec, pr_clear, pr_off_fe
       origin <- as.character(global_trans_chain_log$OriginAddress[i])
       destination <- as.character(global_trans_chain_log$TargetAddress[i])
       if(origin != destination) {  # Ignore self-transmission
-        # New: This filters out "Traveler", "Imported_Returnee", etc. from the matrix
         if(origin %in% rownames(od_matrix) && destination %in% colnames(od_matrix)){
           od_matrix[origin, destination] <- od_matrix[origin, destination] + 1
         }
